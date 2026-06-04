@@ -1,3 +1,6 @@
+## KisekiKernel [![Build KisekiKernel](https://github.com/Mesazane/990_kernel/actions/workflows/build.yml/badge.svg)](https://github.com/Mesazane/990_kernel/actions/workflows/build.yml)
+Up-to-date [KernelSU-Next](https://github.com/KernelSU-Next/KernelSU-Next/tree/legacy) Implementation of [ExtremeKernel](https://github.com/ExtremeXT/990_upstream_v2) for One UI 7
+
 ## Build instructions:
 
 1. Set up build environment as per Google documentation
