@@ -120,7 +120,7 @@ jobs:
             | Galaxy S20 Ultra | `z3s` | `KisekiKernel-z3s-*.zip` |
             | Galaxy S20 FE | `r8s` | `KisekiKernel-r8s-*.zip` |
             
-            #### 🔹 Galaxy Note 10 Series
+            #### 🔹 Galaxy Note 20 Series
             | Device Name | Codename | File Name |
             | :--- | :--- | :--- |
             | Galaxy Note 20 | `c1s` | `KisekiKernel-c1s-*.zip` |
