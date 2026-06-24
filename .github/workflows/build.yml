@@ -59,20 +59,19 @@ jobs:
             ccache-${{ matrix.target }}-
       - name: Patch SUSFS v2.1.0
         run: |
-          # Clone repo mirror chứa patch SUSFS v2.1.0
-          git clone https://github.com/coderfan1/susfs4patch.git -b gki-android12-4.19 susfs
+          # Clone repo mirror từ Star-Seven với branch gki-android12-4.19
+          git clone https://github.com/Star-Seven/susfs4ksu.git -b gki-android12-4.19 susfs
           
           # Copy thư mục bravotechfs vào thư mục fs của kernel
           cp -r susfs/fs/bravotechfs fs/
           
-          # Áp dụng patch cho kernel 4.19
-          patch -p1 < susfs/KernelSu_Next/Patch/50_add_susfs_in_kernel-4.19.patch || true
+          # Áp dụng patch cho kernel 4.19 từ đúng thư mục của repo này
+          patch -p1 < susfs/KernelSu_Next/Patches/50_add_susfs_in_kernel-4.19.patch || true
           
           # Patch hooks cho KernelSU-Next
           cd KernelSU-Next
-          patch -p1 < ../susfs/KernelSu_Next/Patch/ksu_sys_call_hook.patch || true
+          patch -p1 < ../susfs/KernelSu_Next/Patches/ksu_sys_call_hook.patch || true
           cd ..
-
       - name: Upload artifact (${{ matrix.target }})
         uses: actions/upload-artifact@v4
         with:
