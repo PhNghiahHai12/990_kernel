@@ -1,138 +1,369 @@
-name: Build KisekiKernel
+name: Kernel Build
 
-on:
-  workflow_dispatch:
-    inputs:      
-      tag:
-        description: 'Release Tag (OneUI7-990)'
-        required: true        
-        default: 'OneUI7-990'
+on: 
+  workflow_dispatch: 
 
-jobs:
+  push:
+    branches:
+      - main
+      - ksun
+    tags: [ 'v*' ]
+
+jobs: 
   build:
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: read
-      
-    strategy:
+    name:  Build Kernel
+    runs-on: ubuntu-latest
+
+    strategy:  
       fail-fast: false
       matrix:
-        target: [c2s, c1s, r8s, x1s, y2s, z3s]
+        include:
+          - model: x1slte
+            branch: main
+            variant: ksu
+          - model: x1slte
+            branch: main
+            variant: susfs
+          - model: x1slte
+            branch: main
+            variant: vanilla
 
-    steps:
-      - name: Checkout source
+          - model: x1s
+            branch: main
+            variant: ksu
+          - model: x1s
+            branch: main
+            variant: susfs
+          - model: x1s
+            branch: main
+            variant: vanilla
+
+          - model: y2slte
+            branch: main
+            variant: ksu
+          - model: y2slte
+            branch: main
+            variant: susfs
+          - model: y2slte
+            branch: main
+            variant: vanilla
+
+          - model: y2s
+            branch: main
+            variant: ksu
+          - model: y2s
+            branch: main
+            variant: susfs
+          - model: y2s
+            branch: main
+            variant: vanilla
+
+          - model: z3s
+            branch: main
+            variant: ksu
+          - model: z3s
+            branch: main
+            variant: susfs
+          - model: z3s
+            branch: main
+            variant: vanilla
+
+          - model: c1slte
+            branch: main
+            variant: ksu
+          - model: c1slte
+            branch: main
+            variant: susfs
+          - model: c1slte
+            branch: main
+            variant: vanilla
+
+          - model: c1s
+            branch: main
+            variant: ksu
+          - model: c1s
+            branch: main
+            variant: susfs
+          - model: c1s
+            branch: main
+            variant: vanilla
+
+          - model: c2slte
+            branch: main
+            variant: ksu
+          - model: c2slte
+            branch: main
+            variant: susfs
+          - model: c2slte
+            branch: main
+            variant: vanilla
+
+          - model: c2s
+            branch: main
+            variant: ksu
+          - model: c2s
+            branch: main
+            variant: susfs
+          - model: c2s
+            branch: main
+            variant: vanilla
+
+          - model: r8s
+            branch: main
+            variant: ksu
+          - model: r8s
+            branch: main
+            variant: susfs
+          - model: r8s
+            branch: main
+            variant: vanilla
+
+          - model: x1slte
+            branch: ksun
+            variant: ksu
+          - model: x1slte
+            branch: ksun
+            variant: susfs
+
+          - model: x1s
+            branch: ksun
+            variant: ksu
+          - model: x1s
+            branch: ksun
+            variant: susfs
+
+          - model: y2slte
+            branch: ksun
+            variant: ksu
+          - model: y2slte
+            branch: ksun
+            variant: susfs
+
+          - model: y2s
+            branch: ksun
+            variant: ksu
+          - model: y2s
+            branch: ksun
+            variant: susfs
+
+          - model: z3s
+            branch: ksun
+            variant: ksu
+          - model: z3s
+            branch: ksun
+            variant: susfs
+
+          - model: c1slte
+            branch: ksun
+            variant: ksu
+          - model: c1slte
+            branch: ksun
+            variant: susfs
+
+          - model: c1s
+            branch: ksun
+            variant: ksu
+          - model: c1s
+            branch: ksun
+            variant: susfs
+
+          - model: c2slte
+            branch: ksun
+            variant: ksu
+          - model: c2slte
+            branch: ksun
+            variant: susfs
+
+          - model: c2s
+            branch: ksun
+            variant: ksu
+          - model: c2s
+            branch: ksun
+            variant: susfs
+
+          - model: r8s
+            branch: ksun
+            variant: ksu
+          - model: r8s
+            branch: ksun
+            variant: susfs
+
+    steps: 
+      # (1) Checkout repository without submodules
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          submodules: recursive
           fetch-depth: 0
+          submodules: recursive
+          ref: ${{ matrix.branch }}
 
-      - name: Free disk space
+      - name: Unshallow KernelSU-Next submodule (ksun only)
+        if: matrix.branch == 'ksun'
         run: |
-          echo "::group:: Cleaning up pre-installed software to free space"
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /opt/ghc
-          sudo rm -rf "/usr/local/share/boost"
-          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
-          sudo apt-get clean
-          echo "::endgroup::"
+          cd KernelSU-Next
+          git fetch --unshallow || true
+          git fetch --force --tags
 
+      # (2) Install build dependencies
       - name: Set up build environment
         run: |
-          echo "::group:: Installing dependencies and tools"
           sudo apt-get update
-          DEBIAN_FRONTEND=noninteractive sudo apt-get install -yq \
-            p7zip-full jq attr ccache clang ffmpeg golang \
-            libbrotli-dev libgtest-dev libprotobuf-dev libunwind-dev libpcre2-dev \
-            libzstd-dev linux-modules-extra-$(uname -r) lld protobuf-compiler webp \
-            curl xxd patchelf flex bison libarchive-tools build-essential pcre2-utils
-          sudo modprobe erofs f2fs
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          echo "::endgroup::"
+          sudo apt-get install -y \
+            git-core gnupg flex bison build-essential zip curl \
+            zlib1g-dev libc6-dev-i386 x11proto-core-dev \
+            libx11-dev lib32z1-dev libgl1-mesa-dev \
+            libxml2-utils xsltproc unzip fontconfig cpio
 
-      - name: Set up CCache
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ccache
-          key: ccache-${{ matrix.target }}-${{ github.sha }}
-          restore-keys: |
-            ccache-${{ matrix.target }}-
-      - name: Patch SUSFS v2.1.0
+      # (3) Set build flags by variant
+      - name: Set build flags
+        id: vars
+        run:  |
+          case "${{ matrix.variant }}" in
+            ksu)
+              echo "FLAGS=-k y" >> $GITHUB_OUTPUT
+              ;;
+            susfs)
+              echo "FLAGS=-k y -s y" >> $GITHUB_OUTPUT
+              ;;
+            vanilla)
+              echo "FLAGS=-k n" >> $GITHUB_OUTPUT
+              ;;
+          esac
+
+      # (3.5) Patch SUSFS v2.1.0 (Chỉ chạy cho biến thể susfs và dùng nguồn Non-GKI chuẩn)
+      - name: Patch SUSFS v2.1.0 (susfs variant only)
+        if: matrix.variant == 'susfs'
         run: |
-          # 1. Tải trực tiếp mã nguồn SUSFS từ GitLab chính chủ simonpunk qua link raw không cần tài khoản
-          curl -L https://gitlab.com/simonpunk/susfs4ksu/-/archive/main/susfs4ksu-main.tar.gz -o susfs.tar.gz
-          tar -xzf susfs.tar.gz
-          mv susfs4ksu-main susfs
+          # Clone repo mirror Star-Seven qua giao thức GitHub sạch
+          git clone https://github.com/Star-Seven/susfs4ksu.git susfs
           
-          # 2. Copy file hệ thống Non-GKI vào lõi kernel
-          cp -r susfs/fs/* fs/
-          cp -r susfs/include/linux/* include/linux/
+          # Tự động định vị thư mục chứa patch Non-GKI 4.19
+          if [ -d "susfs/kernel_patches" ]; then
+            cp -r susfs/kernel_patches/fs/* fs/
+            cp -r susfs/kernel_patches/include/linux/* include/linux/
+            patch -p1 < susfs/kernel_patches/50_add_susfs_in_kernel-4.19.patch
+          else
+            cp -r susfs/fs/* fs/
+            cp -r susfs/include/linux/* include/linux/
+            patch -p1 < susfs/4.19/50_add_susfs_in_kernel-4.19.patch
+          fi
           
-          # 3. Áp dụng patch SUSFS cho kernel 4.19 Non-GKI
-          patch -p1 < susfs/4.19/50_add_susfs_in_kernel-4.19.patch
-          
-          # 4. Nhảy vào thư mục KernelSU-Next để áp dụng patch hook KSU
+          # Thêm hook SUSFS vào cấu trúc của KernelSU-Next / KernelSU tương ứng
           cd KernelSU-Next
-          patch -p1 < ../susfs/KernelSU/10_enable_susfs_for_ksu.patch
+          if [ -f "../susfs/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" ]; then
+            patch -p1 < ../susfs/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch
+          else
+            patch -p1 < ../susfs/KernelSU/10_enable_susfs_for_ksu.patch
+          fi
           cd ..
-      - name: Upload artifact (${{ matrix.target }})
-        uses: actions/upload-artifact@v4
+
+      # (4) Build kernel
+      - name: Run kernel build
+        run: |
+          chmod +x ./build.sh
+          ./build.sh -m ${{ matrix.model }} ${{ steps.vars.outputs.FLAGS }}
+
+      # (5) Extract and prepare artifact
+      - name:  Prepare artifact
+        id: artifact_name
+        run: |
+          ZIP_FILE=$(ls build/out/${{ matrix.model }}/*.zip | head -n 1)
+          ARTIFACT_NAME=$(basename "$ZIP_FILE" .zip)
+          
+          # Unzip to a temporary directory
+          mkdir -p "artifact-content/$ARTIFACT_NAME"
+          unzip -q "$ZIP_FILE" -d "artifact-content/$ARTIFACT_NAME"
+          
+          echo "name=$ARTIFACT_NAME" >> $GITHUB_OUTPUT
+          echo "Prepared artifact: $ARTIFACT_NAME"
+
+      # (6) Upload kernel artifact
+      - name: Upload kernel artifact
+        uses:  actions/upload-artifact@v4
         with:
-          name: ExtremeKernel-${{ matrix.target }}-zip
-          path: build/out/${{ matrix.target }}/*.zip
-          compression-level: 6
+          name:  ${{ steps.artifact_name.outputs.name }}
+          path: artifact-content/${{ steps.artifact_name.outputs.name }}/*
 
   release:
-    needs: build 
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: write 
-    steps:
-      - name: Download all artifacts
+    name: Publish GitHub Release
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps: 
+      - name: Download artifacts
         uses: actions/download-artifact@v4
-        with:
-          path: raw_artifacts
+        with: 
+          pattern: ExtremeKRNL-*
+          path: kernel-artifacts
 
-      - name: Flatten artifacts directory structure
+      - name: Generate release notes
+        run:  |
+          cat > release.md <<EOF
+          Kernel Information
+          - Kernel Version: Linux 4.19.325
+          - SuSFS Version: 2.1.0
+          - RKSU main Version: 32424
+          - RKSU susfs-rksu-master Version: 32359
+          - KSUN legacy Version: 32943
+          - KSUN legacy-susfs Version: 32943
+          - Build Date: $(date +%Y-%m-%d)
+
+          1.2.0 updates:
+          - Added KernelSU Next variants too.
+          You can download RKSU Manager Here for RKSU:
+          https://t.me/rsukrnlsu/1136
+          You can download KSUN Manager Here for KernelSU Next:
+          https://t.me/ksunext_ci/8387
+
+          Supported Devices
+          - Galaxy S20 (x1slte)
+          - Galaxy S20 5G (x1s)
+          - Galaxy S20+ (y2slte)
+          - Galaxy S20+ 5G (y2s)
+          - Galaxy S20 Ultra 5G (z3s)
+          - Galaxy N20 (c1slte)
+          - Galaxy N20 5G (c1s)
+          - Galaxy N20 Ultra (c2slte)
+          - Galaxy N20 Ultra 5G (c2s)
+          - Galaxy S20 FE (r8s)
+
+          Build Variants
+          1st is the KSU Next Variant.
+          2nd is the KSU Next + SuSFS 2.1.0 variant.
+          3rd is the RKSU Variant.
+          4th is the RKSU + SuSFS 2.1.0 variant.
+          5th is the Vanilla build. fresh kernel, no KSU.
+
+          Build Notes
+          - Built via GitHub Actions
+          - Total builds: 50 (10 models x 5 variants)
+          EOF
+
+      - name:  Repackage for release
         run: |
-          mkdir -p final_artifacts
-          find raw_artifacts/ -name "*.zip" -exec cp {} final_artifacts/ \;
+          mkdir -p release-files
+          
+          # Repackage each artifact
+          for artifact_dir in kernel-artifacts/ExtremeKRNL-*/; do
+            if [ -d "$artifact_dir" ]; then
+              ARTIFACT_NAME=$(basename "$artifact_dir")
+              echo "Packaging $ARTIFACT_NAME..."
+              cd "$artifact_dir"
+              zip -r "../../release-files/${ARTIFACT_NAME}.zip" .
+              cd ../..
+            fi
+          done
+          
+          echo "Release files:"
+          ls -lh release-files/
 
-      - name: Generate Safe Git Tag
-        id: git_tag
-        run: |
-          SAFE_TAG=$(echo "${{ inputs.tag }}" | sed 's/[\/\\:*?"<>|]/-/g')
-          echo "SAFE_TAG=$SAFE_TAG" >> $GITHUB_ENV
-
-      - name: Create GitHub Release
-        uses: ncipollo/release-action@v1
-        with:
-          tag: ${{ env.SAFE_TAG }}
-          name: "${{ inputs.tag }}"
-          draft: false
-          prerelease: false
-          token: ${{ secrets.GITHUB_TOKEN }} 
-          artifacts: "final_artifacts/*.zip"
-          body: |
-            ##  Official Release for KisekiKernel 990
-            
-            Automated build generated by GitHub Actions.
-            
-            - **Commit SHA:** `${{ github.sha }}`
-            - **Tag Reference:** `${{ env.SAFE_TAG }}`
-                        
-            #### 🔹 Galaxy S20 Series
-            | Device Name | Codename | File Name |
-            | :--- | :--- | :--- |
-            | Galaxy S20 | `x1s` | `KisekiKernel-x1s-*.zip` |
-            | Galaxy S20+ | `y2s` | `KisekiKernel-y2s-*.zip` |
-            | Galaxy S20 Ultra | `z3s` | `KisekiKernel-z3s-*.zip` |
-            | Galaxy S20 FE | `r8s` | `KisekiKernel-r8s-*.zip` |
-            
-            #### 🔹 Galaxy Note 20 Series
-            | Device Name | Codename | File Name |
-            | :--- | :--- | :--- |
-            | Galaxy Note 20 | `c1s` | `KisekiKernel-c1s-*.zip` |
-            | Galaxy Note 20 Ultra | `c2s` | `KisekiKernel-c2s-*.zip` |
-            
-            _Note:Ensure you are on the correct firmware base before flashing._
+      - name:  Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with: 
+          tag_name: ${{ github.ref_name }}
+          name: ExtremeKRNL ${{ github.ref_name }}
+          body_path: release.md
+          files: release-files/*.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
