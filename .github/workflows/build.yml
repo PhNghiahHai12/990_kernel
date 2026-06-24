@@ -17,7 +17,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Đã lọc lại chỉ giữ đúng các bản máy LTE theo yêu cầu của bro
+        # Chỉ giữ lại đúng các bản máy LTE theo yêu cầu của bro
         target: [c2slte, c1slte, x1slte, y2slte]
 
     steps:
@@ -59,19 +59,19 @@ jobs:
           restore-keys: |
             ccache-${{ matrix.target }}-
 
-      # Sửa lỗi GitLab: Dùng Git Clone lấy patch SUSFS v2.1.0 siêu sạch không lo lỗi định dạng tar.gz
+      # Đã fix chuẩn tên file patch và cấu trúc thư mục từ repo mirror
       - name: Patch SUSFS v2.1.0
         run: |
           git clone https://github.com/Star-Seven/susfs4ksu.git susfs
           
-          # Copy file hệ thống Non-GKI vào lõi kernel
+          # Copy file hệ thống vào lõi kernel
           cp -r susfs/kernel_patches/fs/* fs/
           cp -r susfs/kernel_patches/include/linux/* include/linux/
           
-          # Áp dụng patch SUSFS cho kernel 4.19 Non-GKI
-          patch -p1 < susfs/kernel_patches/50_add_susfs_in_kernel-4.19.patch
+          # Áp dụng chính xác file patch v2.1.0 cho kernel 4.19 Non-GKI
+          patch -p1 < susfs/kernel_patches/50_add_susfs_in_kernel-4.19_v2.1.0.patch
           
-          # Nhảy vào thư mục KernelSU-Next để áp dụng patch hook KSU
+          # Áp dụng patch hook vào đúng thư mục KernelSU / KernelSU-Next
           if [ -d "KernelSU-Next" ]; then
             cd KernelSU-Next
             patch -p1 < ../susfs/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch
@@ -82,7 +82,7 @@ jobs:
             cd ../..
           fi
 
-      # BỔ SUNG QUAN TRỌNG: Chạy lệnh build.sh biên dịch tạo ra file zip thành phẩm
+      # Chạy lệnh build.sh biên dịch kernel
       - name: Run kernel build
         run: |
           chmod +x ./build.sh
@@ -109,7 +109,6 @@ jobs:
       - name: Flatten artifacts directory structure
         run: |
           mkdir -p final_artifacts
-          # Fix lỗi Release rỗng: Kiểm tra thư mục trước khi copy file zip
           if [ -d "raw_artifacts" ]; then
             find raw_artifacts/ -name "*.zip" -exec cp {} final_artifacts/ \;
           fi
