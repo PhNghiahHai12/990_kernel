@@ -59,20 +59,19 @@ jobs:
             ccache-${{ matrix.target }}-
       - name: Patch SUSFS v2.1.0
         run: |
-          # 1. Clone repo mirror chính chủ từ Star-Seven với branch gki-android12-4.19
+          # 1. Clone repo từ Star-Seven (nhánh mặc định)
           git clone https://github.com/Star-Seven/susfs4ksu.git susfs
           
-          # 2. Copy các file bổ sung của SUSFS vào thư mục fs và include của kernel
-          cp -r susfs/kernel_patches/fs/* fs/
-          cp -r susfs/kernel_patches/include/linux/* include/linux/
+          # 2. Copy file hệ thống Non-GKI vào lõi kernel
+          cp -r susfs/fs/* fs/
+          cp -r susfs/include/linux/* include/linux/
           
-          # 3. Áp dụng patch SUSFS cho kernel 4.19
-          patch -p1 < susfs/kernel_patches/50_add_susfs_in_kernel-4.19.patch || true
+          # 3. Áp dụng patch SUSFS cho kernel 4.19 Non-GKI
+          patch -p1 < susfs/4.19/50_add_susfs_in_kernel-4.19.patch
           
-          # 4. Áp dụng patch cho thư mục KernelSU-Next
-          cp susfs/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch KernelSU-Next/
+          # 4. Nhảy vào thư mục KernelSU-Next để áp dụng patch hook KSU
           cd KernelSU-Next
-          patch -p1 < 10_enable_susfs_for_ksu.patch || true
+          patch -p1 < ../susfs/KernelSU/10_enable_susfs_for_ksu.patch
           cd ..
       - name: Upload artifact (${{ matrix.target }})
         uses: actions/upload-artifact@v4
