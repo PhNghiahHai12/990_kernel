@@ -60,7 +60,7 @@ jobs:
       - name: Patch SUSFS v2.1.0
         run: |
           # 1. Clone repo mirror chính chủ từ Star-Seven với branch gki-android12-4.19
-          git clone https://github.com/Star-Seven/susfs4ksu.git -b gki-android12-4.19 susfs
+          git clone https://github.com/Star-Seven/susfs4ksu.git susfs
           
           # 2. Copy các file bổ sung của SUSFS vào thư mục fs và include của kernel
           cp -r susfs/kernel_patches/fs/* fs/
