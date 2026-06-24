@@ -59,8 +59,10 @@ jobs:
             ccache-${{ matrix.target }}-
       - name: Patch SUSFS v2.1.0
         run: |
-          # 1. Clone repo từ Star-Seven (nhánh mặc định)
-          git clone https://github.com/Star-Seven/susfs4ksu.git susfs
+          # 1. Tải trực tiếp mã nguồn SUSFS từ GitLab chính chủ simonpunk qua link raw không cần tài khoản
+          curl -L https://gitlab.com/simonpunk/susfs4ksu/-/archive/main/susfs4ksu-main.tar.gz -o susfs.tar.gz
+          tar -xzf susfs.tar.gz
+          mv susfs4ksu-main susfs
           
           # 2. Copy file hệ thống Non-GKI vào lõi kernel
           cp -r susfs/fs/* fs/
