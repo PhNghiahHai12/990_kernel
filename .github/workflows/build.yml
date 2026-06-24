@@ -17,7 +17,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Chỉ giữ lại đúng các bản máy LTE theo yêu cầu của bro
+        # Giữ đúng các bản LTE Non-GKI theo yêu cầu của bro
         target: [c2slte, c1slte, x1slte, y2slte]
 
     steps:
@@ -59,30 +59,30 @@ jobs:
           restore-keys: |
             ccache-${{ matrix.target }}-
 
-      # Đã fix chuẩn tên file patch và cấu trúc thư mục từ repo mirror
+      # Sửa triệt để đường dẫn patch khớp 100% với cấu trúc repo Star-Seven cho KernelSU-Next v3.2.0
       - name: Patch SUSFS v2.1.0
         run: |
           git clone https://github.com/Star-Seven/susfs4ksu.git susfs
           
-          # Copy file hệ thống vào lõi kernel
+          # 1. Copy file hệ thống non-GKI từ thư mục kernel_patches/fs và include
           cp -r susfs/kernel_patches/fs/* fs/
           cp -r susfs/kernel_patches/include/linux/* include/linux/
           
-          # Áp dụng chính xác file patch v2.1.0 cho kernel 4.19 Non-GKI
-          patch -p1 < susfs/kernel_patches/50_add_susfs_in_kernel-4.19_v2.1.0.patch
+          # 2. Áp dụng file patch lõi 4.19 nằm trong thư mục KernelSU-Next của repo mirror
+          patch -p1 < susfs/kernel_patches/KernelSU-Next/Next_50_add_susfs_in_kernel-4.19_v2.1.0.patch
           
-          # Áp dụng patch hook vào đúng thư mục KernelSU / KernelSU-Next
+          # 3. Áp dụng patch hook vào thư mục mã nguồn KernelSU-Next
           if [ -d "KernelSU-Next" ]; then
             cd KernelSU-Next
-            patch -p1 < ../susfs/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch
+            patch -p1 < ../susfs/kernel_patches/KernelSU-Next/Next_10_enable_susfs_for_ksu.patch
             cd ..
           elif [ -d "drivers/kernelsu" ]; then
             cd drivers/kernelsu
-            patch -p1 < ../../susfs/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch
+            patch -p1 < ../../susfs/kernel_patches/KernelSU-Next/Next_10_enable_susfs_for_ksu.patch
             cd ../..
           fi
 
-      # Chạy lệnh build.sh biên dịch kernel
+      # Chạy lệnh build.sh để biên dịch ra file zip
       - name: Run kernel build
         run: |
           chmod +x ./build.sh
@@ -137,7 +137,7 @@ jobs:
             
             - **Commit SHA:** `${{ github.sha }}`
             - **Tag Reference:** `${{ env.SAFE_TAG }}`
-            - **Features:** Built-in KernelSU-Next + SuSFS v2.1.0 (Non-GKI 4.19)
+            - **Features:** Built-in KernelSU-Next (v3.2.0) + SuSFS v2.1.0 (Non-GKI 4.19)
                         
             #### 🔹 Galaxy S20 Series (LTE)
             | Device Name | Codename | File Name |
