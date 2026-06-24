@@ -17,7 +17,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Giữ đúng các bản LTE Non-GKI theo yêu cầu của bro
+        # Giữ đúng các bản máy LTE Non-GKI của bro
         target: [c2slte, c1slte, x1slte, y2slte]
 
     steps:
@@ -59,30 +59,30 @@ jobs:
           restore-keys: |
             ccache-${{ matrix.target }}-
 
-      # Sửa triệt để đường dẫn patch khớp 100% với cấu trúc repo Star-Seven cho KernelSU-Next v3.2.0
-      - name: Patch SUSFS v2.1.0
+      # Sử dụng GitLab chính chủ qua Git Clone, không lo lỗi tải tar.gz
+      - name: Patch SUSFS v2.1.0 (Official GitLab)
         run: |
-          git clone https://github.com/Star-Seven/susfs4ksu.git susfs
+          git clone https://gitlab.com/simonpunk/susfs4ksu.git susfs
           
-          # 1. Copy file hệ thống non-GKI từ thư mục kernel_patches/fs và include
-          cp -r susfs/kernel_patches/fs/* fs/
-          cp -r susfs/kernel_patches/include/linux/* include/linux/
+          # 1. Copy file hệ thống Non-GKI vào lõi kernel
+          cp -r susfs/fs/* fs/
+          cp -r susfs/include/linux/* include/linux/
           
-          # 2. Áp dụng file patch lõi 4.19 nằm trong thư mục KernelSU-Next của repo mirror
-          patch -p1 < susfs/kernel_patches/KernelSU-Next/Next_50_add_susfs_in_kernel-4.19_v2.1.0.patch
+          # 2. Áp dụng file patch gốc 4.19 Non-GKI
+          patch -p1 < susfs/4.19/50_add_susfs_in_kernel-4.19.patch
           
-          # 3. Áp dụng patch hook vào thư mục mã nguồn KernelSU-Next
+          # 3. Áp dụng patch hook vào thư mục KernelSU-Next v3.2.0
           if [ -d "KernelSU-Next" ]; then
             cd KernelSU-Next
-            patch -p1 < ../susfs/kernel_patches/KernelSU-Next/Next_10_enable_susfs_for_ksu.patch
+            patch -p1 < ../susfs/KernelSU/10_enable_susfs_for_ksu.patch
             cd ..
           elif [ -d "drivers/kernelsu" ]; then
             cd drivers/kernelsu
-            patch -p1 < ../../susfs/kernel_patches/KernelSU-Next/Next_10_enable_susfs_for_ksu.patch
+            patch -p1 < ../../susfs/KernelSU/10_enable_susfs_for_ksu.patch
             cd ../..
           fi
 
-      # Chạy lệnh build.sh để biên dịch ra file zip
+      # Chạy lệnh build.sh để biên dịch
       - name: Run kernel build
         run: |
           chmod +x ./build.sh
@@ -128,7 +128,7 @@ jobs:
           name: "${{ github.event.inputs.tag }}"
           draft: false
           prerelease: false
-          token: ${{ secrets.GITHUB_TOKEN }} 
+          token: ${{ secrets.GITHUB_TOKEN }}
           artifacts: "final_artifacts/*.zip"
           body: |
             ## 🚀 Official Release for KisekiKernel 990 (LTE Variants Only)
