@@ -37,9 +37,13 @@ jobs:
           sudo apt-get clean
           echo "::endgroup::"
 
+# Đã thêm lệnh dọn dẹp repo azure-cli bị lỗi của GitHub để không bị exit code 100
       - name: Set up build environment
         run: |
           echo "::group:: Installing dependencies and tools"
+          # Xoá bỏ cấu hình repo azure-cli bị lỗi chữ ký từ phía server Microsoft
+          sudo rm -f /etc/apt/sources.list.d/azure-cli.list
+          
           sudo apt-get update
           DEBIAN_FRONTEND=noninteractive sudo apt-get install -yq \
             p7zip-full jq attr ccache clang ffmpeg golang \
