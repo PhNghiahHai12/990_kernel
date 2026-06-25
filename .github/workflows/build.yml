@@ -96,10 +96,11 @@ jobs:
           fi
 
       # Chạy lệnh build.sh để biên dịch kernel thành file zip
+      # Bỏ flag -s y vì script build gốc không hỗ trợ tham số này
       - name: Run kernel build
         run: |
           chmod +x ./build.sh
-          ./build.sh -m ${{ matrix.target }} -k y -s y
+          ./build.sh -m ${{ matrix.target }} -k y
 
       - name: Upload artifact (${{ matrix.target }})
         uses: actions/upload-artifact@v4
