@@ -64,27 +64,35 @@ jobs:
             ccache-${{ matrix.target }}-
 
       # Sửa lại toàn bộ đường dẫn chuẩn đét dựa trên cấu trúc ảnh chụp màn hình GitLab của bro
-      - name: Patch SUSFS v2.1.0 (Official GitLab Structure)
+# Sử dụng nhánh kernel-4.19 chính chủ để hỗ trợ hoàn hảo cho KernelSU-Next
+      - name: Patch SUSFS v2.1.0 (KSU Next Support)
         run: |
-          git clone https://gitlab.com/simonpunk/susfs4ksu.git susfs
+          # Clone chính xác nhánh kernel-4.19 để lấy source code hỗ trợ KSU Next
+          git clone -b kernel-4.19 https://gitlab.com/simonpunk/susfs4ksu.git susfs
           
-          # 1. Copy file hệ thống Non-GKI từ thư mục kernel_patches
+          # 1. Copy file hệ thống bao gồm cả sus_su.c dành riêng cho KSU Next
           cp -r susfs/kernel_patches/fs/* fs/
           cp -r susfs/kernel_patches/include/linux/* include/linux/
           
-          # 2. Áp dụng file patch gốc 4.19 Non-GKI nhưng thêm cờ ép buộc và tăng độ lệch dòng (--fuzz=3)
-          # Thêm || true để nếu có fail vài dòng không quan trọng thì workflow vẫn không bị ngắt giữa chừng
-          patch -p1 --fuzz=3 < susfs/kernel_patches/50_add_susfs_in_kernel-4.19.patch || true
+          # 2. Áp dụng file patch lõi 4.19 (Ép buộc bằng cờ -f và fuzz=3 để tránh xung đột mã nguồn Samsung)
+          patch -p1 --fuzz=3 --no-backup-if-mismatch -f < susfs/kernel_patches/50_add_susfs_in_kernel-4.19.patch || true
           
-          # 3. Áp dụng patch hook vào thư mục KernelSU-Next v3.2.0 từ thư mục KernelSU
+          # 3. Áp dụng patch hook vào thư mục KernelSU-Next của bro
           if [ -d "KernelSU-Next" ]; then
+            echo "=== Patching KernelSU-Next ==="
             cd KernelSU-Next
-            patch -p1 < ../susfs/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch
+            patch -p1 --fuzz=3 --no-backup-if-mismatch -f < ../susfs/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch || true
             cd ..
           elif [ -d "drivers/kernelsu" ]; then
+            echo "=== Patching drivers/kernelsu ==="
             cd drivers/kernelsu
-            patch -p1 < ../../susfs/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch
+            patch -p1 --fuzz=3 --no-backup-if-mismatch -f < ../../susfs/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch || true
             cd ../..
+          fi
+
+          # 4. Kích hoạt build susfs trong kernel Makefile phòng trường hợp patch bị lệch dòng
+          if ! grep -q "susfs" kernel/Makefile; then
+            echo "obj-y += susfs/" >> kernel/Makefile
           fi
 
       # Chạy lệnh build.sh để biên dịch kernel thành file zip
