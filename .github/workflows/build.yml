@@ -41,7 +41,6 @@ jobs:
       - name: Set up build environment
         run: |
           echo "::group:: Installing dependencies and tools"
-          # Xoá bỏ cấu hình repo azure-cli bị lỗi chữ ký từ phía server Microsoft
           sudo rm -f /etc/apt/sources.list.d/azure-cli.list
           
           sudo apt-get update
@@ -49,12 +48,12 @@ jobs:
             p7zip-full jq attr ccache clang ffmpeg golang \
             libbrotli-dev libgtest-dev libprotobuf-dev libunwind-dev libpcre2-dev \
             libzstd-dev linux-modules-extra-$(uname -r) lld protobuf-compiler webp \
-            curl xxd patchelf flex bison libarchive-tools build-essential pcre2-utils zip
+            curl xxd patchelf flex bison libarchive-tools build-essential pcre2-utils zip \
+            llvm lld  # Thêm cụm này để fix lỗi '/bin/sh: llvm-ar: not found'
           sudo modprobe erofs f2fs
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
           echo "::endgroup::"
-
       - name: Set up CCache
         uses: actions/cache@v4
         with:
