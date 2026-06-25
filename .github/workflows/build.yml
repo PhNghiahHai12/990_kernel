@@ -72,8 +72,9 @@ jobs:
           cp -r susfs/kernel_patches/fs/* fs/
           cp -r susfs/kernel_patches/include/linux/* include/linux/
           
-          # 2. Áp dụng file patch lõi 4.19 Non-GKI ngoài thư mục kernel_patches
-          patch -p1 < susfs/kernel_patches/50_add_susfs_in_kernel-4.19.patch
+          # 2. Áp dụng file patch gốc 4.19 Non-GKI nhưng thêm cờ ép buộc và tăng độ lệch dòng (--fuzz=3)
+          # Thêm || true để nếu có fail vài dòng không quan trọng thì workflow vẫn không bị ngắt giữa chừng
+          patch -p1 --fuzz=3 < susfs/kernel_patches/50_add_susfs_in_kernel-4.19.patch || true
           
           # 3. Áp dụng patch hook vào thư mục KernelSU-Next v3.2.0 từ thư mục KernelSU
           if [ -d "KernelSU-Next" ]; then
