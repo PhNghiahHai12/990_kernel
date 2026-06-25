@@ -17,7 +17,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Giữ đúng các bản máy LTE Non-GKI của bro
+        # Giữ đúng 4 bản LTE Non-GKI cho Exynos 990 theo yêu cầu
         target: [c2slte, c1slte, x1slte, y2slte]
 
     steps:
@@ -59,30 +59,30 @@ jobs:
           restore-keys: |
             ccache-${{ matrix.target }}-
 
-      # Sử dụng GitLab chính chủ qua Git Clone, không lo lỗi tải tar.gz
-      - name: Patch SUSFS v2.1.0 (Official GitLab)
+      # Sửa lại toàn bộ đường dẫn chuẩn đét dựa trên cấu trúc ảnh chụp màn hình GitLab của bro
+      - name: Patch SUSFS v2.1.0 (Official GitLab Structure)
         run: |
           git clone https://gitlab.com/simonpunk/susfs4ksu.git susfs
           
-          # 1. Copy file hệ thống Non-GKI vào lõi kernel
-          cp -r susfs/fs/* fs/
-          cp -r susfs/include/linux/* include/linux/
+          # 1. Copy file hệ thống Non-GKI từ thư mục kernel_patches
+          cp -r susfs/kernel_patches/fs/* fs/
+          cp -r susfs/kernel_patches/include/linux/* include/linux/
           
-          # 2. Áp dụng file patch gốc 4.19 Non-GKI
-          patch -p1 < susfs/4.19/50_add_susfs_in_kernel-4.19.patch
+          # 2. Áp dụng file patch lõi 4.19 Non-GKI ngoài thư mục kernel_patches
+          patch -p1 < susfs/kernel_patches/50_add_susfs_in_kernel-4.19.patch
           
-          # 3. Áp dụng patch hook vào thư mục KernelSU-Next v3.2.0
+          # 3. Áp dụng patch hook vào thư mục KernelSU-Next v3.2.0 từ thư mục KernelSU
           if [ -d "KernelSU-Next" ]; then
             cd KernelSU-Next
-            patch -p1 < ../susfs/KernelSU/10_enable_susfs_for_ksu.patch
+            patch -p1 < ../susfs/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch
             cd ..
           elif [ -d "drivers/kernelsu" ]; then
             cd drivers/kernelsu
-            patch -p1 < ../../susfs/KernelSU/10_enable_susfs_for_ksu.patch
+            patch -p1 < ../../susfs/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch
             cd ../..
           fi
 
-      # Chạy lệnh build.sh để biên dịch
+      # Chạy lệnh build.sh để biên dịch kernel thành file zip
       - name: Run kernel build
         run: |
           chmod +x ./build.sh
