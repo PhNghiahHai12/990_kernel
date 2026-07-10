@@ -91,18 +91,25 @@ jobs:
           # xuống bước build/đóng gói rồi mới lộ lỗi khó hiểu.
           patch -p1 --fuzz=3 --no-backup-if-mismatch < susfs/kernel_patches/50_add_susfs_in_kernel-4.19.patch
 
-          # 5. Áp dụng patch hook vào thư mục KernelSU-Next của bro
-          # LƯU Ý: patch 10_enable_susfs_for_ksu.patch trong repo gốc simonpunk được viết cho
-          # KernelSU (tiann) chứ không phải KernelSU-Next (rifsxd) - hai bên khác API/tên hàm.
-          # Nếu patch fail hoặc áp dụng dở dang, đây gần như chắc chắn là lý do build lỗi
-          # ngẫu nhiên ở bước SUSFS/compile. Cần patch tương thích KernelSU-Next thay thế.
+          # 5. KHÔNG patch KernelSU-Next bằng 10_enable_susfs_for_ksu.patch nữa.
+          # Lý do (đã xác nhận từ log lỗi thật): bản KernelSU-Next hiện tại (org
+          # KernelSU-Next/KernelSU-Next, nhánh legacy) đã refactor toàn bộ code từ
+          # kernel/core_hook.c, kernel/ksu.c, kernel/sucompat.c... (cấu trúc cũ mà patch
+          # generic của simonpunk nhắm tới) sang drivers/kernelsu/*.c kiểu LSM hook mới.
+          # Patch cũ luôn báo "can't find file to patch" vì các file đích không còn tồn tại
+          # ở đường dẫn cũ - đây là lỗi cấu trúc, không phải lỗi fuzz/offset nên không vá được
+          # bằng cách nới fuzz. KernelSU-Next bản mới đã tự hỗ trợ SUSFS thông qua Kconfig
+          # riêng của nó (CONFIG_KSU_SUSFS), nên bước dưới đây chỉ kiểm tra config đó có tồn
+          # tại không, thay vì cố patch file không còn khớp.
           if [ -d "KernelSU-Next" ]; then
-            echo "=== Patching KernelSU-Next ==="
-            cd KernelSU-Next
-            patch -p1 --fuzz=3 --no-backup-if-mismatch < ../susfs/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch
-            cd ..
+            if grep -rq "KSU_SUSFS" KernelSU-Next/drivers/kernelsu/Kconfig 2>/dev/null || \
+               grep -rq "KSU_SUSFS" KernelSU-Next/kernel/Kconfig 2>/dev/null; then
+              echo "=== KernelSU-Next đã có sẵn Kconfig cho SUSFS (CONFIG_KSU_SUSFS), không cần patch generic ==="
+            else
+              echo "!!! CANH BAO: khong tim thay CONFIG_KSU_SUSFS trong Kconfig cua KernelSU-Next."
+              echo "!!! submodule co the da doi cau truc lan nua, can kiem tra thu cong."
+            fi
           elif [ -d "drivers/kernelsu" ]; then
-            echo "=== Patching drivers/kernelsu ==="
             cd drivers/kernelsu
             patch -p1 --fuzz=3 --no-backup-if-mismatch < ../../susfs/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch
             cd ../..
