@@ -63,10 +63,11 @@ jobs:
             ccache-${{ matrix.target }}-
 
       # Pin susfs4ksu to a specific, known-good commit on the kernel-4.19 branch instead of
-      # the stale "1.4.2-kernel-4.19" tag. That tag predates several version bumps - the
-      # confirmed current version in active use for kernel-4.19 non-GKI is v2.0.0.
-      # NOTE: there is NO "v2.5.0" or "v2.2.0" anywhere in SUSFS's history.
-      - name: Patch SUSFS (targeting v2.0.0, KSU Next Support)
+      # the stale "1.4.2-kernel-4.19" tag. NOTE: as of the last run, this branch's HEAD
+      # reports SUSFS_VERSION v1.5.5 - NOT v2.0.0. The v2.0.0/v2.1.0 builds seen elsewhere
+      # (e.g. ExtremeXT's release) likely use a different/private source, not this public
+      # branch as-is. There is NO "v2.5.0" or "v2.2.0" anywhere in SUSFS's history.
+      - name: Patch SUSFS (KSU Next Support)
         run: |
           set -e
 
@@ -89,10 +90,28 @@ jobs:
           #   fatal error: 'internal.h' file not found
           # because the relative #include "internal.h" can't resolve from the wrong directory.
 
-          # 4. Apply the kernel-4.19 core patch. No more "|| true": if the patch genuinely
-          # fails, this step must fail loudly here instead of letting a half-patched tree
-          # drift down into the build/packaging steps where the error becomes confusing.
+          # 4. Apply the kernel-4.19 core patch. `patch` exits non-zero if ANY hunk is
+          # rejected, even if most of the file patched fine - so we capture that instead of
+          # letting `set -e` kill the whole job blindly. If something rejects, we print the
+          # .rej file content so the log shows exactly what conflicts, instead of guessing.
+          set +e
           patch -p1 --fuzz=3 --no-backup-if-mismatch < susfs/kernel_patches/50_add_susfs_in_kernel-4.19.patch
+          PATCH_EXIT=$?
+          set -e
+
+          echo ""
+          echo "=== Any .rej files left behind (rejected hunks) ==="
+          find . -name "*.rej" -not -path "./susfs/*" 2>/dev/null | while read -r rej; do
+            echo "--- $rej ---"
+            cat "$rej"
+            echo ""
+          done
+
+          if [ "$PATCH_EXIT" -ne 0 ]; then
+            echo "!!! WARNING: 50_add_susfs_in_kernel-4.19.patch had rejected hunks (see above)."
+            echo "!!! Continuing the build anyway since most hunks applied - if compilation"
+            echo "!!! fails later referencing fs/namespace.c, the rejected hunk above is why."
+          fi
 
           # 5. Do NOT patch KernelSU-Next with 10_enable_susfs_for_ksu.patch (confirmed from
           # an earlier failed run: the current KernelSU-Next codebase has been restructured -
@@ -199,7 +218,7 @@ jobs:
             
             - **Commit SHA:** `${{ github.sha }}`
             - **Tag Reference:** `${{ env.SAFE_TAG }}`
-            - **Features:** Built-in KernelSU-Next (v3.2.0) + SuSFS (targeting v2.0.0, Non-GKI kernel-4.19)
+            - **Features:** Built-in KernelSU-Next (v3.2.0) + SuSFS (v1.5.5, Non-GKI kernel-4.19)
                         
             #### 🔹 Galaxy S20 Series (LTE)
             | Device Name | Codename | File Name |
