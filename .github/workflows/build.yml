@@ -64,11 +64,9 @@ jobs:
 
       # Pin susfs4ksu to a specific, known-good commit on the kernel-4.19 branch instead of
       # the stale "1.4.2-kernel-4.19" tag. That tag predates several version bumps - the
-      # confirmed current ceiling for kernel-4.19 (non-GKI) is SUSFS v2.1.0, which only
-      # exists on later commits of the branch, not on that old tag.
-      # NOTE: there is NO "v2.5.0" anywhere in SUSFS's history - v2.1.0 is the real latest.
-      # We still pin to a commit (not a floating branch name) so the build stays reproducible.
-      - name: Patch SUSFS (targeting v2.1.0, KSU Next Support)
+      # confirmed current version in active use for kernel-4.19 non-GKI is v2.0.0.
+      # NOTE: there is NO "v2.5.0" or "v2.2.0" anywhere in SUSFS's history.
+      - name: Patch SUSFS (targeting v2.0.0, KSU Next Support)
         run: |
           set -e
 
@@ -96,11 +94,11 @@ jobs:
           # drift down into the build/packaging steps where the error becomes confusing.
           patch -p1 --fuzz=3 --no-backup-if-mismatch < susfs/kernel_patches/50_add_susfs_in_kernel-4.19.patch
 
-          # 5. Do NOT patch KernelSU-Next with 10_enable_susfs_for_ksu.patch anymore.
-          # Confirmed from an earlier failed run: the current KernelSU-Next codebase has been
-          # restructured (old kernel/core_hook.c, kernel/ksu.c, etc. no longer exist at those
-          # paths - the logic moved into drivers/kernelsu/*). The generic patch from simonpunk
-          # targets the old file layout and will never apply cleanly here.
+          # 5. Do NOT patch KernelSU-Next with 10_enable_susfs_for_ksu.patch (confirmed from
+          # an earlier failed run: the current KernelSU-Next codebase has been restructured -
+          # old kernel/core_hook.c, kernel/ksu.c, etc. no longer exist at those paths, the
+          # logic moved into drivers/kernelsu/*). The generic patch from simonpunk targets the
+          # old file layout and will never apply cleanly here.
           #
           # This step does NOT guess the new structure - it prints real data so the log tells
           # us exactly what's there, instead of relying on assumptions.
@@ -201,7 +199,7 @@ jobs:
             
             - **Commit SHA:** `${{ github.sha }}`
             - **Tag Reference:** `${{ env.SAFE_TAG }}`
-            - **Features:** Built-in KernelSU-Next (v3.2.0) + SuSFS (targeting v2.1.0, Non-GKI kernel-4.19)
+            - **Features:** Built-in KernelSU-Next (v3.2.0) + SuSFS (targeting v2.0.0, Non-GKI kernel-4.19)
                         
             #### 🔹 Galaxy S20 Series (LTE)
             | Device Name | Codename | File Name |
