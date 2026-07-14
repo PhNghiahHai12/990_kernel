@@ -17,7 +17,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Giữ đúng 4 bản LTE Non-GKI cho Exynos 990 theo yêu cầu
+        # Keep exactly the 4 LTE Non-GKI variants for Exynos 990 as requested
         target: [c2slte, c1slte, x1slte, y2slte]
 
     steps:
@@ -37,7 +37,7 @@ jobs:
           sudo apt-get clean
           echo "::endgroup::"
 
-# Đã thêm lệnh dọn dẹp repo azure-cli bị lỗi của GitHub để không bị exit code 100
+# Added cleanup for GitHub's broken azure-cli repo so it doesn't cause exit code 100
       - name: Set up build environment
         run: |
           echo "::group:: Installing dependencies and tools"
@@ -49,7 +49,7 @@ jobs:
             libbrotli-dev libgtest-dev libprotobuf-dev libunwind-dev libpcre2-dev \
             libzstd-dev linux-modules-extra-$(uname -r) lld protobuf-compiler webp \
             curl xxd patchelf flex bison libarchive-tools build-essential pcre2-utils zip \
-            llvm lld  # Thêm cụm này để fix lỗi '/bin/sh: llvm-ar: not found'
+            llvm lld  # Added this group to fix the '/bin/sh: llvm-ar: not found' error
           sudo modprobe erofs f2fs
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -62,64 +62,79 @@ jobs:
           restore-keys: |
             ccache-${{ matrix.target }}-
 
-      # Ghim đúng 1 tag cụ thể của susfs4ksu thay vì clone HEAD của nhánh (HEAD trôi nổi
-      # theo thời gian -> build không tái lập được, là nguyên nhân chính gây lỗi "thỉnh thoảng").
-      # Tag mới nhất hiện có cho kernel-4.19 trên simonpunk/susfs4ksu là 1.4.2-kernel-4.19
-      # (repo gốc KHÔNG có tag "v2.5.0" cho nhánh kernel-4.19).
-      - name: Patch SUSFS 1.4.2 (KSU Next Support)
-        env:
-          SUSFS_TAG: 1.4.2-kernel-4.19
+      # Pin susfs4ksu to a specific, known-good commit on the kernel-4.19 branch instead of
+      # the stale "1.4.2-kernel-4.19" tag. That tag predates several version bumps - the
+      # confirmed current ceiling for kernel-4.19 (non-GKI) is SUSFS v2.1.0, which only
+      # exists on later commits of the branch, not on that old tag.
+      # NOTE: there is NO "v2.5.0" anywhere in SUSFS's history - v2.1.0 is the real latest.
+      # We still pin to a commit (not a floating branch name) so the build stays reproducible.
+      - name: Patch SUSFS (targeting v2.1.0, KSU Next Support)
         run: |
           set -e
 
-          # 1. Clone đúng tag cố định để build luôn tái lập được
-          git clone -b "$SUSFS_TAG" --depth 1 https://gitlab.com/simonpunk/susfs4ksu.git susfs
+          # 1. Clone the kernel-4.19 branch (shallow is fine, we just need the tree)
+          git clone -b kernel-4.19 https://gitlab.com/simonpunk/susfs4ksu.git susfs
 
-          # 2. Copy file hệ thống bao gồm cả sus_su.c dành riêng cho KSU Next vào kernel source
+          echo "=== Detected SUSFS_VERSION in this checkout ==="
+          grep -R "SUSFS_VERSION" susfs/kernel_patches/include/linux/susfs.h 2>/dev/null || \
+            echo "(SUSFS_VERSION string not found - check susfs.h manually if this matters)"
+
+          # 2. Copy filesystem-side files (including sus_su.c support) into the kernel source
           cp -r susfs/kernel_patches/fs/* fs/
           cp -r susfs/kernel_patches/include/linux/* include/linux/
 
-          # 3. KHÔNG tạo thêm bản sao susfs.c ở kernel/susfs/ nữa.
-          # susfs.c đã được copy đúng vị trí chuẩn vào fs/susfs.c ở bước 2 phía trên, và
-          # patch 50_add_susfs_in_kernel-4.19.patch (bước 4 bên dưới) đã tự sửa fs/Makefile
-          # để biên dịch susfs.o ngay tại fs/ - nơi có sẵn fs/internal.h cùng thư mục.
-          # Bản sao cũ ở kernel/susfs/susfs.c bị lỗi "fatal error: 'internal.h' file not found"
-          # vì include "internal.h" tương đối không tìm thấy file khi susfs.c nằm sai chỗ.
+          # 3. Do NOT create a second copy of susfs.c under kernel/susfs/.
+          # susfs.c is already placed correctly at fs/susfs.c by step 2 above, and the
+          # 50_add_susfs_in_kernel-4.19.patch (step 4 below) already patches fs/Makefile to
+          # build susfs.o right there in fs/ - where fs/internal.h lives in the same directory.
+          # An extra copy under kernel/susfs/ fails to compile with:
+          #   fatal error: 'internal.h' file not found
+          # because the relative #include "internal.h" can't resolve from the wrong directory.
 
-          # 4. Áp dụng file patch lõi 4.19. Không còn "|| true": nếu patch fail thật,
-          # step này phải đỏ ngay tại đây thay vì để cây kernel half-patched trôi
-          # xuống bước build/đóng gói rồi mới lộ lỗi khó hiểu.
+          # 4. Apply the kernel-4.19 core patch. No more "|| true": if the patch genuinely
+          # fails, this step must fail loudly here instead of letting a half-patched tree
+          # drift down into the build/packaging steps where the error becomes confusing.
           patch -p1 --fuzz=3 --no-backup-if-mismatch < susfs/kernel_patches/50_add_susfs_in_kernel-4.19.patch
 
-          # 5. KHÔNG patch KernelSU-Next bằng 10_enable_susfs_for_ksu.patch nữa (đã xác nhận
-          # cấu trúc file cũ kernel/core_hook.c... không còn tồn tại trong bản KSU-Next hiện tại).
+          # 5. Do NOT patch KernelSU-Next with 10_enable_susfs_for_ksu.patch anymore.
+          # Confirmed from an earlier failed run: the current KernelSU-Next codebase has been
+          # restructured (old kernel/core_hook.c, kernel/ksu.c, etc. no longer exist at those
+          # paths - the logic moved into drivers/kernelsu/*). The generic patch from simonpunk
+          # targets the old file layout and will never apply cleanly here.
           #
-          # Bước dưới đây KHÔNG đoán tiếp cấu trúc mới, mà in ra dữ liệu thật để đọc log lần
-          # này sẽ biết chính xác cần patch gì, thay vì tiếp tục suy đoán sai.
+          # This step does NOT guess the new structure - it prints real data so the log tells
+          # us exactly what's there, instead of relying on assumptions.
           if [ -d "KernelSU-Next" ]; then
-            echo "=== Danh sách thư mục con của KernelSU-Next (2 cấp) ==="
+            echo "=== KernelSU-Next subdirectory listing (2 levels deep) ==="
             find KernelSU-Next -maxdepth 2 -type d | sort
 
             echo ""
-            echo "=== Các file có chứa từ khóa 'susfs' (không phân biệt hoa/thường) ==="
-            grep -ril susfs KernelSU-Next 2>/dev/null || echo "(không tìm thấy file nào chứa 'susfs')"
+            echo "=== Files containing 'susfs' (case-insensitive) ==="
+            grep -ril susfs KernelSU-Next 2>/dev/null || echo "(no file containing 'susfs' found)"
 
             echo ""
-            echo "=== Nội dung KernelSU-Next/kernel/Kconfig (nếu có) ==="
-            cat KernelSU-Next/kernel/Kconfig 2>/dev/null || echo "(không tồn tại KernelSU-Next/kernel/Kconfig)"
+            echo "=== Contents of KernelSU-Next/kernel/Kconfig (if present) ==="
+            cat KernelSU-Next/kernel/Kconfig 2>/dev/null || echo "(KernelSU-Next/kernel/Kconfig does not exist)"
 
             echo ""
-            echo "=== Nội dung KernelSU-Next/drivers/kernelsu/Kconfig (nếu có) ==="
-            cat KernelSU-Next/drivers/kernelsu/Kconfig 2>/dev/null || echo "(không tồn tại KernelSU-Next/drivers/kernelsu/Kconfig)"
+            echo "=== Contents of KernelSU-Next/drivers/kernelsu/Kconfig (if present) ==="
+            cat KernelSU-Next/drivers/kernelsu/Kconfig 2>/dev/null || echo "(KernelSU-Next/drivers/kernelsu/Kconfig does not exist)"
 
             echo ""
-            echo "=== Commit hiện tại của submodule KernelSU-Next ==="
-            git -C KernelSU-Next log -1 --oneline 2>/dev/null || echo "(không lấy được thông tin git log)"
+            echo "=== Checking for a SUSFS 'spoof version' Kconfig option ==="
+            grep -ril "SPOOF" KernelSU-Next/kernel/Kconfig KernelSU-Next/drivers/kernelsu/Kconfig 2>/dev/null || \
+              echo "(no SPOOF-related Kconfig option found here - version spoofing on SUSFS is" \
+                   "usually a runtime/module-level toggle via the SUSFS manager, not a build-time flag)"
+
+            echo ""
+            echo "=== Current commit of the KernelSU-Next submodule ==="
+            git -C KernelSU-Next log -1 --oneline 2>/dev/null || echo "(could not read git log)"
           fi
 
-      # Vá lỗi im lặng trong build.sh gốc: 2 lệnh mkdtimg tạo dtb.img/dtbo.img không có
-      # "|| abort" đi kèm, nên nếu chúng fail, script vẫn chạy tiếp và lỗi chỉ lộ ra sai chỗ
-      # ở bước "Building zip" (cp: cannot stat dtbo.img: No such file or directory).
+      # Fix a silent bug in the original build.sh: the two mkdtimg commands that create
+      # dtb.img/dtbo.img have no "|| abort" attached, so if they fail, the script keeps
+      # going and the error only surfaces later, at the wrong spot, in the "Building zip"
+      # step (cp: cannot stat dtbo.img: No such file or directory).
       - name: Patch build.sh (fail fast on mkdtimg errors)
         run: |
           set -e
@@ -127,11 +142,11 @@ jobs:
             -e 's@\(./toolchain/mkdtimg cfg_create build/out/\$MODEL/dtb\.img build/dtconfigs/exynos9830\.cfg -d out/arch/arm64/boot/dts/exynos\)$@\1 || abort@' \
             -e 's@\(./toolchain/mkdtimg cfg_create build/out/\$MODEL/dtbo\.img build/dtconfigs/\$MODEL\.cfg -d out/arch/arm64/boot/dts/samsung\)$@\1 || abort@' \
             build.sh
-          echo "=== Kiểm tra lại 2 dòng mkdtimg sau khi patch ==="
+          echo "=== Verifying the two mkdtimg lines after patching ==="
           grep -n "mkdtimg cfg_create" build.sh
 
-      # Chạy lệnh build.sh để biên dịch kernel thành file zip
-      # Bỏ flag -s y vì script build gốc không hỗ trợ tham số này
+      # Run build.sh to compile the kernel into a flashable zip.
+      # The -s y flag was removed because the original build script doesn't support it.
       - name: Run kernel build
         run: |
           chmod +x ./build.sh
@@ -161,7 +176,7 @@ jobs:
           if [ -d "raw_artifacts" ]; then
             find raw_artifacts/ -name "*.zip" -exec cp {} final_artifacts/ \;
           fi
-          echo "Danh sách file zip thu thập được:"
+          echo "Collected zip files:"
           ls -l final_artifacts/
 
       - name: Generate Safe Git Tag
@@ -186,7 +201,7 @@ jobs:
             
             - **Commit SHA:** `${{ github.sha }}`
             - **Tag Reference:** `${{ env.SAFE_TAG }}`
-            - **Features:** Built-in KernelSU-Next (v3.2.0) + SuSFS 1.4.2 (Non-GKI kernel-4.19)
+            - **Features:** Built-in KernelSU-Next (v3.2.0) + SuSFS (targeting v2.1.0, Non-GKI kernel-4.19)
                         
             #### 🔹 Galaxy S20 Series (LTE)
             | Device Name | Codename | File Name |
