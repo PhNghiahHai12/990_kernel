@@ -62,6 +62,23 @@ jobs:
           restore-keys: |
             ccache-${{ matrix.target }}-
 
+      # KernelSU-Next needs "manual hooks" wired into a handful of syscall handlers
+      # (fs/exec.c, fs/open.c, fs/read_write.c, fs/stat.c, drivers/input/input.c) to be
+      # recognized by the Manager app on non-GKI kernels - kprobes are avoided here since
+      # they're known to conflict with Samsung Exynos RKP/KDP and can cause bootloops.
+      # This uses devnoname120/kernelsu-coccinelle's "scope-minimized-hooks" (built for
+      # KernelSU-Next specifically), which applies semantic patches robustly even on a
+      # heavily modified vendor kernel like this one.
+      # IMPORTANT: per that tool's own README, these hooks must be applied to a CLEAN
+      # kernel source - before any KernelSU or SUSFS patches - so this step runs first.
+      - name: Apply KernelSU-Next manual hooks (Coccinelle scope-minimized-hooks)
+        run: |
+          set -e
+          sudo apt-get install -yq coccinelle
+          git clone https://github.com/devnoname120/kernelsu-coccinelle.git /tmp/kernelsu-coccinelle
+          cd /tmp/kernelsu-coccinelle/scope-minimized-hooks
+          ./apply.sh "$GITHUB_WORKSPACE"
+
       # Pin susfs4ksu to a specific, known-good commit on the kernel-4.19 branch instead of
       # the stale "1.4.2-kernel-4.19" tag. NOTE: as of the last run, this branch's HEAD
       # reports SUSFS_VERSION v1.5.5 - NOT v2.0.0. The v2.0.0/v2.1.0 builds seen elsewhere
@@ -209,6 +226,8 @@ jobs:
           name: "${{ github.event.inputs.tag }}"
           draft: false
           prerelease: false
+          allowUpdates: true
+          replacesArtifacts: true
           token: ${{ secrets.GITHUB_TOKEN }}
           artifacts: "final_artifacts/*.zip"
           body: |
