@@ -79,6 +79,23 @@ jobs:
           cd /tmp/kernelsu-coccinelle/scope-minimized-hooks
           ./apply.sh "$GITHUB_WORKSPACE"
 
+          echo ""
+          echo "=== Verifying whether Coccinelle actually changed any files ==="
+          echo "(spatch can silently match 0 patterns and still exit 0 - this checks the real result)"
+          cd "$GITHUB_WORKSPACE"
+          CHANGED=$(git diff --stat -- fs/exec.c fs/open.c fs/read_write.c fs/stat.c drivers/input/input.c 2>/dev/null || true)
+          if [ -z "$CHANGED" ]; then
+            echo "!!! WARNING: git diff shows ZERO changes to the 5 target files."
+            echo "!!! This means Coccinelle found NO matching patterns on this kernel tree -"
+            echo "!!! the hooks were NOT applied, even though the step above exited successfully."
+            echo "!!! This is very likely why the Manager app still reports 'Not integrated'."
+          else
+            echo "$CHANGED"
+            echo ""
+            echo "=== Full diff of changed hook files ==="
+            git diff -- fs/exec.c fs/open.c fs/read_write.c fs/stat.c drivers/input/input.c
+          fi
+
       # Pin susfs4ksu to a specific, known-good commit on the kernel-4.19 branch instead of
       # the stale "1.4.2-kernel-4.19" tag. NOTE: as of the last run, this branch's HEAD
       # reports SUSFS_VERSION v1.5.5 - NOT v2.0.0. The v2.0.0/v2.1.0 builds seen elsewhere
