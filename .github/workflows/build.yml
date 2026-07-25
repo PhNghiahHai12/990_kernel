@@ -96,19 +96,19 @@ jobs:
             echo "=== Full diff of changed hook files ==="
             git diff -- fs/exec.c fs/open.c fs/read_write.c fs/stat.c drivers/input/input.c
           fi
-      - name: Integrate KernelSU-Next driver and enable configs
+      - name: Enable KernelSU-Next and configure defconfigs
         run: |
-          echo "::group:: Setup KernelSU-Next"
-          # Fetch KernelSU-Next source directly into the kernel tree
-          curl -LSs "https://raw.githubusercontent.com/rifs2000/KernelSU-Next/main/kernel/setup.sh" | bash -
-
-          # Force CONFIG_KSU=y and Kprobes into all Exynos 990 / 9830 defconfigs
+          echo "::group:: Setup KernelSU-Next Configs"
+          
+          # Since KernelSU-Next is already present in the tree,
+          # we just enable CONFIG_KSU and Kprobes flags in the defconfigs.
           find arch/arm64/configs -type f \( -name "*990*.config" -o -name "*9830*.config" -o -name "*defconfig*" \) | while read -r cfg; do
             echo "CONFIG_KSU=y" >> "$cfg"
             echo "CONFIG_KPROBES=y" >> "$cfg"
             echo "CONFIG_HAVE_KPROBES=y" >> "$cfg"
             echo "CONFIG_KPROBE_EVENTS=y" >> "$cfg"
           done
+          
           echo "::endgroup::"
       # Pin susfs4ksu to a specific, known-good commit on the kernel-4.19 branch instead of
       # the stale "1.4.2-kernel-4.19" tag. NOTE: as of the last run, this branch's HEAD
