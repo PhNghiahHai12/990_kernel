@@ -72,30 +72,19 @@ jobs:
       # heavily modified vendor kernel like this one.
       # IMPORTANT: per that tool's own README, these hooks must be applied to a CLEAN
       # kernel source - before any KernelSU or SUSFS patches - so this step runs first.
-      - name: Apply KernelSU-Next manual hooks (Coccinelle scope-minimized-hooks)
+      - name: Integrate KernelSU-Next Official Setup
         run: |
           set -e
-          sudo apt-get install -yq coccinelle
-          git clone https://github.com/devnoname120/kernelsu-coccinelle.git /tmp/kernelsu-coccinelle
-          cd /tmp/kernelsu-coccinelle/scope-minimized-hooks
-          ./apply.sh "$GITHUB_WORKSPACE"
+          echo "=== Running KernelSU-Next setup script ==="
+          bash KernelSU-Next/kernel/setup.sh
 
-          echo ""
-          echo "=== Verifying whether Coccinelle actually changed any files ==="
-          echo "(spatch can silently match 0 patterns and still exit 0 - this checks the real result)"
-          cd "$GITHUB_WORKSPACE"
-          CHANGED=$(git diff --stat -- fs/exec.c fs/open.c fs/read_write.c fs/stat.c drivers/input/input.c 2>/dev/null || true)
-          if [ -z "$CHANGED" ]; then
-            echo "!!! WARNING: git diff shows ZERO changes to the 5 target files."
-            echo "!!! This means Coccinelle found NO matching patterns on this kernel tree -"
-            echo "!!! the hooks were NOT applied, even though the step above exited successfully."
-            echo "!!! This is very likely why the Manager app still reports 'Not integrated'."
-          else
-            echo "$CHANGED"
-            echo ""
-            echo "=== Full diff of changed hook files ==="
-            git diff -- fs/exec.c fs/open.c fs/read_write.c fs/stat.c drivers/input/input.c
-          fi
+          # Force CONFIG_KSU and Kprobes into all Exynos 990 / 9830 defconfigs
+          find arch/arm64/configs -type f \( -name "*990*.config" -o -name "*9830*.config" -o -name "*defconfig*" \) | while read -r cfg; do
+            echo "CONFIG_KSU=y" >> "$cfg"
+            echo "CONFIG_KPROBES=y" >> "$cfg"
+            echo "CONFIG_HAVE_KPROBES=y" >> "$cfg"
+            echo "CONFIG_KPROBE_EVENTS=y" >> "$cfg"
+          done
       - name: Enable KernelSU-Next and configure defconfigs
         run: |
           echo "::group:: Setup KernelSU-Next Configs"
