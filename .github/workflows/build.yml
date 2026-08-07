@@ -62,6 +62,31 @@ jobs:
           restore-keys: |
             ccache-${{ matrix.target }}-
 
+      # Previously we only relied on the raw "KernelSU-Next" git submodule (left over from
+      # the original fork maintainer) being present - we never actually ran KernelSU-Next's
+      # own official integration script. That script does more than just fetch source: it
+      # also wires drivers/Kconfig + drivers/Makefile (source "drivers/kernelsu/Kconfig",
+      # obj-$(CONFIG_KSU) += kernelsu/) and computes the KSU version string the Manager app
+      # checks against. Skipping this step is very likely why the Manager app kept reporting
+      # "Not integrated" even after the manual hooks were added. This is the official command
+      # from https://kernelsu-next.github.io/webpage/pages/how-to-integrate-for-non-gki.html
+      - name: Apply official KernelSU-Next integration (legacy/non-GKI)
+        run: |
+          set -e
+          if [ -d "KernelSU-Next" ]; then
+            rm -rf KernelSU-Next
+          fi
+          curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s legacy
+
+          echo ""
+          echo "=== KernelSU-Next integrated. Current commit: ==="
+          git -C KernelSU-Next log -1 --oneline 2>/dev/null || echo "(could not read git log)"
+
+          echo ""
+          echo "=== Verifying drivers/Kconfig and drivers/Makefile were wired up ==="
+          grep -n "kernelsu" drivers/Kconfig 2>/dev/null || echo "!!! drivers/Kconfig was NOT updated with kernelsu - integration may be incomplete"
+          grep -n "kernelsu" drivers/Makefile 2>/dev/null || echo "!!! drivers/Makefile was NOT updated with kernelsu - integration may be incomplete"
+
       # KernelSU-Next needs "manual hooks" wired into a handful of syscall handlers to be
       # recognized by the Manager app on non-GKI kernels - kprobes are avoided here since
       # they're known to conflict with Samsung Exynos RKP/KDP and can cause bootloops.
