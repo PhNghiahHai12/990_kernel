@@ -37,7 +37,6 @@ jobs:
           sudo apt-get clean
           echo "::endgroup::"
 
-      # Added cleanup for GitHub's broken azure-cli repo so it doesn't cause exit code 100
       - name: Set up build environment
         run: |
           echo "::group:: Installing dependencies and tools"
@@ -49,7 +48,7 @@ jobs:
             libbrotli-dev libgtest-dev libprotobuf-dev libunwind-dev libpcre2-dev \
             libzstd-dev linux-modules-extra-$(uname -r) lld protobuf-compiler webp \
             curl xxd patchelf flex bison libarchive-tools build-essential pcre2-utils zip \
-            llvm lld  # Added this group to fix the '/bin/sh: llvm-ar: not found' error
+            llvm lld
           sudo modprobe erofs f2fs
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -71,12 +70,10 @@ jobs:
             rm -rf drivers/kernelsu
           fi
           
-          # Clone the latest KernelSU-Next without hardcoding a dead commit
           git clone https://github.com/KernelSU-Next/KernelSU-Next.git drivers/kernelsu
           
           echo ""
           echo "=== Manually wiring up Kconfig and Makefile ==="
-          # Check if already wired to prevent duplicate entries on re-runs
           if ! grep -q 'source "drivers/kernelsu/Kconfig"' drivers/Kconfig; then
             echo 'source "drivers/kernelsu/Kconfig"' >> drivers/Kconfig
           fi
@@ -87,6 +84,7 @@ jobs:
           echo ""
           echo "=== KernelSU-Next integrated. Current commit: ==="
           git -C drivers/kernelsu log -1 --oneline 2>/dev/null || echo "(could not read git log)"
+
       - name: Apply KernelSU-Next manual hooks (official non-GKI patches)
         run: |
           set +e
@@ -107,7 +105,6 @@ jobs:
             fi
           }
 
-          # --- fs/exec.c: hook do_execveat_common ---
           cat > /tmp/ksu-hooks/exec.patch << 'EOF'
 --- a/fs/exec.c
 +++ b/fs/exec.c
@@ -138,7 +135,6 @@ jobs:
 EOF
           apply_one "fs/exec.c" /tmp/ksu-hooks/exec.patch
 
-          # --- fs/open.c: hook do_faccessat ---
           cat > /tmp/ksu-hooks/open.patch << 'EOF'
 --- a/fs/open.c
 +++ b/fs/open.c
@@ -173,7 +169,6 @@ EOF
 EOF
           apply_one "fs/open.c" /tmp/ksu-hooks/open.patch
 
-          # --- fs/read_write.c: hook vfs_read ---
           cat > /tmp/ksu-hooks/read_write.patch << 'EOF'
 --- a/fs/read_write.c
 +++ b/fs/read_write.c
@@ -200,7 +195,6 @@ EOF
 EOF
           apply_one "fs/read_write.c" /tmp/ksu-hooks/read_write.patch
 
-          # --- fs/stat.c: hook vfs_statx ---
           cat > /tmp/ksu-hooks/stat.patch << 'EOF'
 --- a/fs/stat.c
 +++ b/fs/stat.c
@@ -259,7 +253,6 @@ EOF
             apply_one "fs/stat.c (vfs_fstatat variant)" /tmp/ksu-hooks/stat_fstatat.patch
           fi
 
-          # --- drivers/input/input.c: Safe Mode hook ---
           cat > /tmp/ksu-hooks/input.patch << 'EOF'
 --- a/drivers/input/input.c
 +++ b/drivers/input/input.c
@@ -294,9 +287,8 @@ EOF
       - name: Patch SUSFS (KSU Next Support)
         run: |
           set -e
-
           git clone -b kernel-4.19 https://gitlab.com/simonpunk/susfs4ksu.git susfs
-
+          
           echo "=== Detected SUSFS_VERSION in this checkout ==="
           grep -R "SUSFS_VERSION" susfs/kernel_patches/include/linux/susfs.h 2>/dev/null || \
             echo "(SUSFS_VERSION string not found - check susfs.h manually if this matters)"
@@ -319,20 +311,6 @@ EOF
 
           if [ "$PATCH_EXIT" -ne 0 ]; then
             echo "!!! WARNING: 50_add_susfs_in_kernel-4.19.patch had rejected hunks (see above)."
-          fi
-
-          if [ -d "drivers/kernelsu" ]; then
-            echo "=== KernelSU-Next subdirectory listing (2 levels deep) ==="
-            find drivers/kernelsu -maxdepth 2 -type d | sort
-
-            echo ""
-            echo "=== Files containing 'susfs' (case-insensitive) ==="
-            grep -ril susfs drivers/kernelsu 2>/dev/null || echo "(no file containing 'susfs' found)"
-
-            echo ""
-            echo "=== Checking for a SUSFS 'spoof version' Kconfig option ==="
-            grep -ril "SPOOF" drivers/kernelsu/kernel/Kconfig drivers/kernelsu/Kconfig 2>/dev/null || \
-              echo "(no SPOOF-related Kconfig found)"
           fi
 
       - name: Patch build.sh (fail fast on mkdtimg errors)
@@ -401,7 +379,7 @@ EOF
             
             - **Commit SHA:** `${{ github.sha }}`
             - **Tag Reference:** `${{ env.SAFE_TAG }}`
-            - **Features:** Built-in KernelSU-Next (v3.2.0) + SuSFS (v1.5.5, Non-GKI kernel-4.19)
+            - **Features:** Built-in KernelSU-Next (latest) + SuSFS (v1.5.5, Non-GKI kernel-4.19)
                         
             #### 🔹 Galaxy S20 Series (LTE)
             | Device Name | Codename | File Name |
