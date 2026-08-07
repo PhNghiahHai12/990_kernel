@@ -63,22 +63,17 @@ jobs:
           restore-keys: |
             ccache-${{ matrix.target }}-
 
-      - name: Apply KernelSU-Next integration (pinned to Artisan's known-working commit)
+      - name: Apply KernelSU-Next integration
         run: |
           set -e
           # Clean up any old integration
           if [ -d "drivers/kernelsu" ]; then
             rm -rf drivers/kernelsu
           fi
-          if [ -d "KernelSU-Next" ]; then
-            rm -rf KernelSU-Next
-          fi
           
+          # Clone the latest KernelSU-Next without hardcoding a dead commit
           git clone https://github.com/KernelSU-Next/KernelSU-Next.git drivers/kernelsu
-          cd drivers/kernelsu
-          git checkout 4cc162e027cc36f8e4d4e6a554e9aa07cac4d4f0
-          cd ../..
-
+          
           echo ""
           echo "=== Manually wiring up Kconfig and Makefile ==="
           # Check if already wired to prevent duplicate entries on re-runs
@@ -92,12 +87,6 @@ jobs:
           echo ""
           echo "=== KernelSU-Next integrated. Current commit: ==="
           git -C drivers/kernelsu log -1 --oneline 2>/dev/null || echo "(could not read git log)"
-
-          echo ""
-          echo "=== Verifying drivers/Kconfig and drivers/Makefile were wired up ==="
-          grep -n "kernelsu" drivers/Kconfig 2>/dev/null || echo "!!! drivers/Kconfig was NOT updated"
-          grep -n "kernelsu" drivers/Makefile 2>/dev/null || echo "!!! drivers/Makefile was NOT updated"
-
       - name: Apply KernelSU-Next manual hooks (official non-GKI patches)
         run: |
           set +e
