@@ -37,7 +37,7 @@ jobs:
           sudo apt-get clean
           echo "::endgroup::"
 
-# Added cleanup for GitHub's broken azure-cli repo so it doesn't cause exit code 100
+      # Added cleanup for GitHub's broken azure-cli repo so it doesn't cause exit code 100
       - name: Set up build environment
         run: |
           echo "::group:: Installing dependencies and tools"
@@ -54,6 +54,7 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
           echo "::endgroup::"
+
       - name: Set up CCache
         uses: actions/cache@v4
         with:
@@ -62,48 +63,41 @@ jobs:
           restore-keys: |
             ccache-${{ matrix.target }}-
 
-      # Previously we only relied on the raw "KernelSU-Next" git submodule (left over from
-      # the original fork maintainer) being present - we never actually ran KernelSU-Next's
-      # own official integration script. That script does more than just fetch source: it
-      # also wires drivers/Kconfig + drivers/Makefile (source "drivers/kernelsu/Kconfig",
-      # obj-$(CONFIG_KSU) += kernelsu/) and computes the KSU version string the Manager app
-      # checks against. Skipping this step is very likely why the Manager app kept reporting
-      # "Not integrated" even after the manual hooks were added. This is the official command
-      # from https://kernelsu-next.github.io/webpage/pages/how-to-integrate-for-non-gki.html
-      - name: Apply official KernelSU-Next integration (legacy/non-GKI)
+      - name: Apply KernelSU-Next integration (pinned to Artisan's known-working commit)
         run: |
           set -e
+          # Clean up any old integration
+          if [ -d "drivers/kernelsu" ]; then
+            rm -rf drivers/kernelsu
+          fi
           if [ -d "KernelSU-Next" ]; then
             rm -rf KernelSU-Next
           fi
-          curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s legacy
+          
+          git clone https://github.com/KernelSU-Next/KernelSU-Next.git drivers/kernelsu
+          cd drivers/kernelsu
+          git checkout 4cc162e027cc36f8e4d4e6a554e9aa07cac4d4f0
+          cd ../..
+
+          echo ""
+          echo "=== Manually wiring up Kconfig and Makefile ==="
+          # Check if already wired to prevent duplicate entries on re-runs
+          if ! grep -q 'source "drivers/kernelsu/Kconfig"' drivers/Kconfig; then
+            echo 'source "drivers/kernelsu/Kconfig"' >> drivers/Kconfig
+          fi
+          if ! grep -q 'obj-$(CONFIG_KSU) += kernelsu/' drivers/Makefile; then
+            echo 'obj-$(CONFIG_KSU) += kernelsu/' >> drivers/Makefile
+          fi
 
           echo ""
           echo "=== KernelSU-Next integrated. Current commit: ==="
-          git -C KernelSU-Next log -1 --oneline 2>/dev/null || echo "(could not read git log)"
+          git -C drivers/kernelsu log -1 --oneline 2>/dev/null || echo "(could not read git log)"
 
           echo ""
           echo "=== Verifying drivers/Kconfig and drivers/Makefile were wired up ==="
-          grep -n "kernelsu" drivers/Kconfig 2>/dev/null || echo "!!! drivers/Kconfig was NOT updated with kernelsu - integration may be incomplete"
-          grep -n "kernelsu" drivers/Makefile 2>/dev/null || echo "!!! drivers/Makefile was NOT updated with kernelsu - integration may be incomplete"
+          grep -n "kernelsu" drivers/Kconfig 2>/dev/null || echo "!!! drivers/Kconfig was NOT updated"
+          grep -n "kernelsu" drivers/Makefile 2>/dev/null || echo "!!! drivers/Makefile was NOT updated"
 
-      # KernelSU-Next needs "manual hooks" wired into a handful of syscall handlers to be
-      # recognized by the Manager app on non-GKI kernels - kprobes are avoided here since
-      # they're known to conflict with Samsung Exynos RKP/KDP and can cause bootloops.
-      #
-      # The Coccinelle-based auto-patcher tried previously produced ZERO changes (confirmed
-      # via git diff in an earlier run) - it couldn't match patterns on this heavily modified
-      # Samsung kernel tree. This step instead applies the official literal patch diffs from
-      # KernelSU's own non-GKI integration guide directly to the 5 required files:
-      #   fs/exec.c, fs/open.c, fs/read_write.c, fs/stat.c, drivers/input/input.c
-      # These call into ksu_handle_execveat/faccessat/vfs_read/stat/input_handle_event,
-      # which KernelSU-Next's driver code (drivers/kernelsu/*) already defines regardless of
-      # the internal refactor we saw earlier - these are the external call sites, not the
-      # driver internals, so they should still exist under the same names.
-      #
-      # Order matters: applied BEFORE the SUSFS step, same as the Coccinelle attempt, since
-      # fs/stat.c is touched by both this patch and the SUSFS patch - applying manual hooks
-      # first (on a cleaner tree) minimizes the chance of the two patches conflicting.
       - name: Apply KernelSU-Next manual hooks (official non-GKI patches)
         run: |
           set +e
@@ -126,123 +120,123 @@ jobs:
 
           # --- fs/exec.c: hook do_execveat_common ---
           cat > /tmp/ksu-hooks/exec.patch << 'EOF'
-          --- a/fs/exec.c
-          +++ b/fs/exec.c
-          @@ -1890,11 +1890,14 @@ static int __do_execve_file(int fd, struct filename *filename,
-           	return retval;
-           }
-           
-          +#ifdef CONFIG_KSU
-          +extern bool ksu_execveat_hook __read_mostly;
-          +extern int ksu_handle_execveat(int *fd, struct filename **filename_ptr, void *argv,
-          +			void *envp, int *flags);
-          +extern int ksu_handle_execveat_sucompat(int *fd, struct filename **filename_ptr,
-          +				 void *argv, void *envp, int *flags);
-          +#endif
-           static int do_execveat_common(int fd, struct filename *filename,
-           			      struct user_arg_ptr argv,
-           			      struct user_arg_ptr envp,
-           			      int flags)
-           {
-          +   #ifdef CONFIG_KSU
-          +	if (unlikely(ksu_execveat_hook))
-          +		ksu_handle_execveat(&fd, &filename, &argv, &envp, &flags);
-          +	else
-          +		ksu_handle_execveat_sucompat(&fd, &filename, &argv, &envp, &flags);
-          +   #endif
-           	return __do_execve_file(fd, filename, argv, envp, flags, NULL);
-           }
-          EOF
+--- a/fs/exec.c
++++ b/fs/exec.c
+@@ -1890,11 +1890,14 @@ static int __do_execve_file(int fd, struct filename *filename,
+ 	return retval;
+ }
+ 
++#ifdef CONFIG_KSU
++extern bool ksu_execveat_hook __read_mostly;
++extern int ksu_handle_execveat(int *fd, struct filename **filename_ptr, void *argv,
++			void *envp, int *flags);
++extern int ksu_handle_execveat_sucompat(int *fd, struct filename **filename_ptr,
++				 void *argv, void *envp, int *flags);
++#endif
+ static int do_execveat_common(int fd, struct filename *filename,
+ 			      struct user_arg_ptr argv,
+ 			      struct user_arg_ptr envp,
+ 			      int flags)
+ {
++    #ifdef CONFIG_KSU
++	if (unlikely(ksu_execveat_hook))
++		ksu_handle_execveat(&fd, &filename, &argv, &envp, &flags);
++	else
++		ksu_handle_execveat_sucompat(&fd, &filename, &argv, &envp, &flags);
++    #endif
+ 	return __do_execve_file(fd, filename, argv, envp, flags, NULL);
+ }
+EOF
           apply_one "fs/exec.c" /tmp/ksu-hooks/exec.patch
 
-          # --- fs/open.c: hook do_faccessat (kernel >= 4.17, which covers our 4.19) ---
+          # --- fs/open.c: hook do_faccessat ---
           cat > /tmp/ksu-hooks/open.patch << 'EOF'
-          --- a/fs/open.c
-          +++ b/fs/open.c
-          @@ -348,6 +348,8 @@ SYSCALL_DEFINE4(fallocate, int, fd, int, mode, loff_t, offset, loff_t, len)
-           	return ksys_fallocate(fd, mode, offset, len);
-           }
-           
-          +#ifdef CONFIG_KSU
-          +extern int ksu_handle_faccessat(int *dfd, const char __user **filename_user, int *mode,
-          +			 int *flags);
-          +#endif
-           /*
-            * access() needs to use the real uid/gid, not the effective uid/gid.
-            * We do this by temporarily clearing all FS-related capabilities and
-          @@ -355,6 +357,7 @@ SYSCALL_DEFINE4(fallocate, int, fd, int, mode, loff_t, offset, loff_t, len)
-            */
-           long do_faccessat(int dfd, const char __user *filename, int mode)
-           {
-           	const struct cred *old_cred;
-           	struct cred *override_cred;
-           	struct path path;
-           	struct inode *inode;
-           	struct vfsmount *mnt;
-           	int res;
-           	unsigned int lookup_flags = LOOKUP_FOLLOW;
-          +   #ifdef CONFIG_KSU
-          +	ksu_handle_faccessat(&dfd, &filename, &mode, NULL);
-          +   #endif
-           
-           	if (mode & ~S_IRWXO)	/* where's F_OK, X_OK, W_OK, R_OK? */
-           		return -EINVAL;
-          EOF
+--- a/fs/open.c
++++ b/fs/open.c
+@@ -348,6 +348,8 @@ SYSCALL_DEFINE4(fallocate, int, fd, int, mode, loff_t, offset, loff_t, len)
+ 	return ksys_fallocate(fd, mode, offset, len);
+ }
+ 
++#ifdef CONFIG_KSU
++extern int ksu_handle_faccessat(int *dfd, const char __user **filename_user, int *mode,
++			 int *flags);
++#endif
+ /*
+  * access() needs to use the real uid/gid, not the effective uid/gid.
+  * We do this by temporarily clearing all FS-related capabilities and
+@@ -355,6 +357,7 @@ SYSCALL_DEFINE4(fallocate, int, fd, int, mode, loff_t, offset, loff_t, len)
+  */
+ long do_faccessat(int dfd, const char __user *filename, int mode)
+ {
+ 	const struct cred *old_cred;
+ 	struct cred *override_cred;
+ 	struct path path;
+ 	struct inode *inode;
+ 	struct vfsmount *mnt;
+ 	int res;
+ 	unsigned int lookup_flags = LOOKUP_FOLLOW;
++    #ifdef CONFIG_KSU
++	ksu_handle_faccessat(&dfd, &filename, &mode, NULL);
++    #endif
+ 
+ 	if (mode & ~S_IRWXO)	/* where's F_OK, X_OK, W_OK, R_OK? */
+ 		return -EINVAL;
+EOF
           apply_one "fs/open.c" /tmp/ksu-hooks/open.patch
 
           # --- fs/read_write.c: hook vfs_read ---
           cat > /tmp/ksu-hooks/read_write.patch << 'EOF'
-          --- a/fs/read_write.c
-          +++ b/fs/read_write.c
-          @@ -434,10 +434,14 @@ ssize_t kernel_read(struct file *file, void *buf, size_t count, loff_t *pos)
-           }
-           EXPORT_SYMBOL(kernel_read);
-           
-          +#ifdef CONFIG_KSU
-          +extern bool ksu_vfs_read_hook __read_mostly;
-          +extern int ksu_handle_vfs_read(struct file **file_ptr, char __user **buf_ptr,
-          +			size_t *count_ptr, loff_t **pos);
-          +#endif
-           ssize_t vfs_read(struct file *file, char __user *buf, size_t count, loff_t *pos)
-           {
-           	ssize_t ret;
-          +   #ifdef CONFIG_KSU
-          +	if (unlikely(ksu_vfs_read_hook))
-          +		ksu_handle_vfs_read(&file, &buf, &count, &pos);
-          +   #endif
-          +
-           	if (!(file->f_mode & FMODE_READ))
-           		return -EBADF;
-           	if (!(file->f_mode & FMODE_CAN_READ))
-          EOF
+--- a/fs/read_write.c
++++ b/fs/read_write.c
+@@ -434,10 +434,14 @@ ssize_t kernel_read(struct file *file, void *buf, size_t count, loff_t *pos)
+ }
+ EXPORT_SYMBOL(kernel_read);
+ 
++#ifdef CONFIG_KSU
++extern bool ksu_vfs_read_hook __read_mostly;
++extern int ksu_handle_vfs_read(struct file **file_ptr, char __user **buf_ptr,
++			size_t *count_ptr, loff_t **pos);
++#endif
+ ssize_t vfs_read(struct file *file, char __user *buf, size_t count, loff_t *pos)
+ {
+ 	ssize_t ret;
++    #ifdef CONFIG_KSU
++	if (unlikely(ksu_vfs_read_hook))
++		ksu_handle_vfs_read(&file, &buf, &count, &pos);
++    #endif
++
+ 	if (!(file->f_mode & FMODE_READ))
+ 		return -EBADF;
+ 	if (!(file->f_mode & FMODE_CAN_READ))
+EOF
           apply_one "fs/read_write.c" /tmp/ksu-hooks/read_write.patch
 
-          # --- fs/stat.c: hook vfs_statx (try this first; kernel 4.19 should have it) ---
+          # --- fs/stat.c: hook vfs_statx ---
           cat > /tmp/ksu-hooks/stat.patch << 'EOF'
-          --- a/fs/stat.c
-          +++ b/fs/stat.c
-          @@ -148,6 +148,8 @@ int vfs_statx_fd(unsigned int fd, struct kstat *stat,
-           }
-           EXPORT_SYMBOL(vfs_statx_fd);
-           
-          +#ifdef CONFIG_KSU
-          +extern int ksu_handle_stat(int *dfd, const char __user **filename_user, int *flags);
-          +#endif
-          +
-           /**
-            * vfs_statx - Get basic and extra attributes by filename
-            * @dfd: A file descriptor representing the base dir for a relative filename
-          @@ -170,6 +172,7 @@ int vfs_statx(int dfd, const char __user *filename, int flags,
-           	int error = -EINVAL;
-           	unsigned int lookup_flags = LOOKUP_FOLLOW | LOOKUP_AUTOMOUNT;
-           
-          +   #ifdef CONFIG_KSU
-          +	ksu_handle_stat(&dfd, &filename, &flags);
-          +   #endif
-           	if ((flags & ~(AT_SYMLINK_NOFOLLOW | AT_NO_AUTOMOUNT |
-           		       AT_EMPTY_PATH | KSTAT_QUERY_FLAGS)) != 0)
-           		return -EINVAL;
-          EOF
+--- a/fs/stat.c
++++ b/fs/stat.c
+@@ -148,6 +148,8 @@ int vfs_statx_fd(unsigned int fd, struct kstat *stat,
+ }
+ EXPORT_SYMBOL(vfs_statx_fd);
+ 
++#ifdef CONFIG_KSU
++extern int ksu_handle_stat(int *dfd, const char __user **filename_user, int *flags);
++#endif
++
+ /**
+  * vfs_statx - Get basic and extra attributes by filename
+  * @dfd: A file descriptor representing the base dir for a relative filename
+@@ -170,6 +172,7 @@ int vfs_statx(int dfd, const char __user *filename, int flags,
+ 	int error = -EINVAL;
+ 	unsigned int lookup_flags = LOOKUP_FOLLOW | LOOKUP_AUTOMOUNT;
+ 
++    #ifdef CONFIG_KSU
++	ksu_handle_stat(&dfd, &filename, &flags);
++    #endif
+ 	if ((flags & ~(AT_SYMLINK_NOFOLLOW | AT_NO_AUTOMOUNT |
+ 		       AT_EMPTY_PATH | KSTAT_QUERY_FLAGS)) != 0)
+ 		return -EINVAL;
+EOF
           patch -p1 --fuzz=3 --no-backup-if-mismatch --dry-run < /tmp/ksu-hooks/stat.patch > /dev/null 2>&1
           if [ $? -eq 0 ]; then
             apply_one "fs/stat.c (vfs_statx variant)" /tmp/ksu-hooks/stat.patch
@@ -250,57 +244,57 @@ jobs:
             echo ""
             echo "=== vfs_statx not found in fs/stat.c, falling back to vfs_fstatat variant ==="
             cat > /tmp/ksu-hooks/stat_fstatat.patch << 'EOF'
-          --- a/fs/stat.c
-          +++ b/fs/stat.c
-          @@ -87,6 +87,8 @@ int vfs_fstat(unsigned int fd, struct kstat *stat)
-           }
-           EXPORT_SYMBOL(vfs_fstat);
-           
-          +#ifdef CONFIG_KSU
-          +extern int ksu_handle_stat(int *dfd, const char __user **filename_user, int *flags);
-          +#endif
-           int vfs_fstatat(int dfd, const char __user *filename, struct kstat *stat,
-           		int flag)
-           {
-          @@ -94,6 +96,8 @@ int vfs_fstatat(int dfd, const char __user *filename, struct kstat *stat,
-           	int error = -EINVAL;
-           	unsigned int lookup_flags = 0;
-          +   #ifdef CONFIG_KSU
-          +	ksu_handle_stat(&dfd, &filename, &flag);
-          +   #endif
-          +
-           	if ((flag & ~(AT_SYMLINK_NOFOLLOW | AT_NO_AUTOMOUNT |
-           		      AT_EMPTY_PATH)) != 0)
-           		goto out;
-          EOF
+--- a/fs/stat.c
++++ b/fs/stat.c
+@@ -87,6 +87,8 @@ int vfs_fstat(unsigned int fd, struct kstat *stat)
+ }
+ EXPORT_SYMBOL(vfs_fstat);
+ 
++#ifdef CONFIG_KSU
++extern int ksu_handle_stat(int *dfd, const char __user **filename_user, int *flags);
++#endif
+ int vfs_fstatat(int dfd, const char __user *filename, struct kstat *stat,
+ 		int flag)
+ {
+@@ -94,6 +96,8 @@ int vfs_fstatat(int dfd, const char __user *filename, struct kstat *stat,
+ 	int error = -EINVAL;
+ 	unsigned int lookup_flags = 0;
++    #ifdef CONFIG_KSU
++	ksu_handle_stat(&dfd, &filename, &flag);
++    #endif
++
+ 	if ((flag & ~(AT_SYMLINK_NOFOLLOW | AT_NO_AUTOMOUNT |
+ 		      AT_EMPTY_PATH)) != 0)
+ 		goto out;
+EOF
             apply_one "fs/stat.c (vfs_fstatat variant)" /tmp/ksu-hooks/stat_fstatat.patch
           fi
 
-          # --- drivers/input/input.c: Safe Mode hook (strongly recommended, prevents bootloop) ---
+          # --- drivers/input/input.c: Safe Mode hook ---
           cat > /tmp/ksu-hooks/input.patch << 'EOF'
-          --- a/drivers/input/input.c
-          +++ b/drivers/input/input.c
-          @@ -367,10 +367,13 @@ static int input_get_disposition(struct input_dev *dev,
-           	return disposition;
-           }
-           
-          +#ifdef CONFIG_KSU
-          +extern bool ksu_input_hook __read_mostly;
-          +extern int ksu_handle_input_handle_event(unsigned int *type, unsigned int *code, int *value);
-          +#endif
-          +
-           static void input_handle_event(struct input_dev *dev,
-           			       unsigned int type, unsigned int code, int value)
-           {
-          	int disposition = input_get_disposition(dev, type, code, &value);
-          +   #ifdef CONFIG_KSU
-          +	if (unlikely(ksu_input_hook))
-          +		ksu_handle_input_handle_event(&type, &code, &value);
-          +   #endif
-           
-           	if (disposition != INPUT_IGNORE_EVENT && type != EV_SYN)
-           		add_input_randomness(type, code, value);
-          EOF
+--- a/drivers/input/input.c
++++ b/drivers/input/input.c
+@@ -367,10 +367,13 @@ static int input_get_disposition(struct input_dev *dev,
+ 	return disposition;
+ }
+ 
++#ifdef CONFIG_KSU
++extern bool ksu_input_hook __read_mostly;
++extern int ksu_handle_input_handle_event(unsigned int *type, unsigned int *code, int *value);
++#endif
++
+ static void input_handle_event(struct input_dev *dev,
+ 			       unsigned int type, unsigned int code, int value)
+ {
+ 	int disposition = input_get_disposition(dev, type, code, &value);
++    #ifdef CONFIG_KSU
++	if (unlikely(ksu_input_hook))
++		ksu_handle_input_handle_event(&type, &code, &value);
++    #endif
+ 
+ 	if (disposition != INPUT_IGNORE_EVENT && type != EV_SYN)
+ 		add_input_randomness(type, code, value);
+EOF
           apply_one "drivers/input/input.c" /tmp/ksu-hooks/input.patch
 
           echo ""
@@ -308,38 +302,19 @@ jobs:
           git diff --stat -- fs/exec.c fs/open.c fs/read_write.c fs/stat.c drivers/input/input.c
           set -e
 
-      # Pin susfs4ksu to a specific, known-good commit on the kernel-4.19 branch instead of
-      # the stale "1.4.2-kernel-4.19" tag. NOTE: as of the last run, this branch's HEAD
-      # reports SUSFS_VERSION v1.5.5 - NOT v2.0.0. The v2.0.0/v2.1.0 builds seen elsewhere
-      # (e.g. ExtremeXT's release) likely use a different/private source, not this public
-      # branch as-is. There is NO "v2.5.0" or "v2.2.0" anywhere in SUSFS's history.
       - name: Patch SUSFS (KSU Next Support)
         run: |
           set -e
 
-          # 1. Clone the kernel-4.19 branch (shallow is fine, we just need the tree)
           git clone -b kernel-4.19 https://gitlab.com/simonpunk/susfs4ksu.git susfs
 
           echo "=== Detected SUSFS_VERSION in this checkout ==="
           grep -R "SUSFS_VERSION" susfs/kernel_patches/include/linux/susfs.h 2>/dev/null || \
             echo "(SUSFS_VERSION string not found - check susfs.h manually if this matters)"
 
-          # 2. Copy filesystem-side files (including sus_su.c support) into the kernel source
           cp -r susfs/kernel_patches/fs/* fs/
           cp -r susfs/kernel_patches/include/linux/* include/linux/
 
-          # 3. Do NOT create a second copy of susfs.c under kernel/susfs/.
-          # susfs.c is already placed correctly at fs/susfs.c by step 2 above, and the
-          # 50_add_susfs_in_kernel-4.19.patch (step 4 below) already patches fs/Makefile to
-          # build susfs.o right there in fs/ - where fs/internal.h lives in the same directory.
-          # An extra copy under kernel/susfs/ fails to compile with:
-          #   fatal error: 'internal.h' file not found
-          # because the relative #include "internal.h" can't resolve from the wrong directory.
-
-          # 4. Apply the kernel-4.19 core patch. `patch` exits non-zero if ANY hunk is
-          # rejected, even if most of the file patched fine - so we capture that instead of
-          # letting `set -e` kill the whole job blindly. If something rejects, we print the
-          # .rej file content so the log shows exactly what conflicts, instead of guessing.
           set +e
           patch -p1 --fuzz=3 --no-backup-if-mismatch < susfs/kernel_patches/50_add_susfs_in_kernel-4.19.patch
           PATCH_EXIT=$?
@@ -355,49 +330,22 @@ jobs:
 
           if [ "$PATCH_EXIT" -ne 0 ]; then
             echo "!!! WARNING: 50_add_susfs_in_kernel-4.19.patch had rejected hunks (see above)."
-            echo "!!! Continuing the build anyway since most hunks applied - if compilation"
-            echo "!!! fails later referencing fs/namespace.c, the rejected hunk above is why."
           fi
 
-          # 5. Do NOT patch KernelSU-Next with 10_enable_susfs_for_ksu.patch (confirmed from
-          # an earlier failed run: the current KernelSU-Next codebase has been restructured -
-          # old kernel/core_hook.c, kernel/ksu.c, etc. no longer exist at those paths, the
-          # logic moved into drivers/kernelsu/*). The generic patch from simonpunk targets the
-          # old file layout and will never apply cleanly here.
-          #
-          # This step does NOT guess the new structure - it prints real data so the log tells
-          # us exactly what's there, instead of relying on assumptions.
-          if [ -d "KernelSU-Next" ]; then
+          if [ -d "drivers/kernelsu" ]; then
             echo "=== KernelSU-Next subdirectory listing (2 levels deep) ==="
-            find KernelSU-Next -maxdepth 2 -type d | sort
+            find drivers/kernelsu -maxdepth 2 -type d | sort
 
             echo ""
             echo "=== Files containing 'susfs' (case-insensitive) ==="
-            grep -ril susfs KernelSU-Next 2>/dev/null || echo "(no file containing 'susfs' found)"
-
-            echo ""
-            echo "=== Contents of KernelSU-Next/kernel/Kconfig (if present) ==="
-            cat KernelSU-Next/kernel/Kconfig 2>/dev/null || echo "(KernelSU-Next/kernel/Kconfig does not exist)"
-
-            echo ""
-            echo "=== Contents of KernelSU-Next/drivers/kernelsu/Kconfig (if present) ==="
-            cat KernelSU-Next/drivers/kernelsu/Kconfig 2>/dev/null || echo "(KernelSU-Next/drivers/kernelsu/Kconfig does not exist)"
+            grep -ril susfs drivers/kernelsu 2>/dev/null || echo "(no file containing 'susfs' found)"
 
             echo ""
             echo "=== Checking for a SUSFS 'spoof version' Kconfig option ==="
-            grep -ril "SPOOF" KernelSU-Next/kernel/Kconfig KernelSU-Next/drivers/kernelsu/Kconfig 2>/dev/null || \
-              echo "(no SPOOF-related Kconfig option found here - version spoofing on SUSFS is" \
-                   "usually a runtime/module-level toggle via the SUSFS manager, not a build-time flag)"
-
-            echo ""
-            echo "=== Current commit of the KernelSU-Next submodule ==="
-            git -C KernelSU-Next log -1 --oneline 2>/dev/null || echo "(could not read git log)"
+            grep -ril "SPOOF" drivers/kernelsu/kernel/Kconfig drivers/kernelsu/Kconfig 2>/dev/null || \
+              echo "(no SPOOF-related Kconfig found)"
           fi
 
-      # Fix a silent bug in the original build.sh: the two mkdtimg commands that create
-      # dtb.img/dtbo.img have no "|| abort" attached, so if they fail, the script keeps
-      # going and the error only surfaces later, at the wrong spot, in the "Building zip"
-      # step (cp: cannot stat dtbo.img: No such file or directory).
       - name: Patch build.sh (fail fast on mkdtimg errors)
         run: |
           set -e
@@ -408,8 +356,6 @@ jobs:
           echo "=== Verifying the two mkdtimg lines after patching ==="
           grep -n "mkdtimg cfg_create" build.sh
 
-      # Run build.sh to compile the kernel into a flashable zip.
-      # The -s y flag was removed because the original build script doesn't support it.
       - name: Run kernel build
         run: |
           chmod +x ./build.sh
