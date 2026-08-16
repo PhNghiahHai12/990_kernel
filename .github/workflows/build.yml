@@ -70,22 +70,13 @@ jobs:
       # checks against. Skipping this step is very likely why the Manager app kept reporting
       # "Not integrated" even after the manual hooks were added. This is the official command
       # from https://kernelsu-next.github.io/webpage/pages/how-to-integrate-for-non-gki.html
-      # Pin to the EXACT commit that Android-Artisan/android_kernel_samsung_exynos990 uses
-      # (github.com/Android-Artisan/android_kernel_samsung_exynos990 -> KernelSU-Next @ 4cc162e).
-      # This is the same official KernelSU-Next/KernelSU-Next org repo we were already using,
-      # just a different commit - and it's a commit CONFIRMED working with SUSFS on the same
-      # Exynos 990 / kernel 4.19 device family as this repo, unlike our previous commit
-      # (5a4a718) which was confirmed missing the hook integration.
-      - name: Apply KernelSU-Next integration (pinned to Artisan's known-working commit)
+      - name: Apply official KernelSU-Next integration (legacy/non-GKI)
         run: |
           set -e
           if [ -d "KernelSU-Next" ]; then
             rm -rf KernelSU-Next
           fi
-          git clone https://github.com/KernelSU-Next/KernelSU-Next.git KernelSU-Next
-          cd KernelSU-Next
-          git checkout 4cc162e027cc36f8e4d4e6a554e9aa07cac4d4f0
-          cd ..
+          curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s legacy
 
           echo ""
           echo "=== KernelSU-Next integrated. Current commit: ==="
