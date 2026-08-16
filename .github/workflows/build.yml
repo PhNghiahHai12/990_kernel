@@ -365,6 +365,24 @@ jobs:
             echo "!!! fails later referencing fs/namespace.c, the rejected hunk above is why."
           fi
 
+          # 6. Neutralize the "ksu_handle_devpts" call that this SUSFS patch (and the official
+          # KernelSU non-GKI guide) adds to fs/devpts/inode.c. Per kernelsu.org's own docs,
+          # this hook is OPTIONAL - it only fixes a minor issue where the `pm` command fails
+          # in an adb/root terminal, nothing security- or root-hiding related. Confirmed via a
+          # real failed build: KernelSU-Next's current driver code does NOT define this
+          # function (unlike the 5 core hooks in fs/exec.c, fs/open.c, fs/read_write.c,
+          # fs/stat.c, drivers/input/input.c, which all link fine), so it fails at the final
+          # link step with "undefined symbol: ksu_handle_devpts". Since it's non-essential and
+          # we have no safe reference implementation to provide ourselves, we remove the call.
+          if [ -f fs/devpts/inode.c ] && grep -q "ksu_handle_devpts" fs/devpts/inode.c; then
+            echo ""
+            echo "=== Neutralizing optional ksu_handle_devpts call in fs/devpts/inode.c ==="
+            sed -i '/extern int ksu_handle_devpts(struct inode\*);/d' fs/devpts/inode.c
+            sed -i '/ksu_handle_devpts(dentry->d_inode);/d' fs/devpts/inode.c
+            echo "=== Remaining references to ksu_handle_devpts (should be none) ==="
+            grep -n "ksu_handle_devpts" fs/devpts/inode.c || echo "(none - cleaned up successfully)"
+          fi
+
           # 5. Do NOT patch KernelSU-Next with 10_enable_susfs_for_ksu.patch (confirmed from
           # an earlier failed run: the current KernelSU-Next codebase has been restructured -
           # old kernel/core_hook.c, kernel/ksu.c, etc. no longer exist at those paths, the
